@@ -190,8 +190,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);-web
 <div id="main"></div>
 
 <nav id="tabs">
-  <button class="tab active" data-t="heute" onclick="switchTab('heute')">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>Heute
+  <button class="tab active" data-t="erfassen" onclick="switchTab('erfassen')">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>Erfassen
   </button>
   <button class="tab" data-t="verlauf" onclick="switchTab('verlauf')">
     <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Verlauf
@@ -372,9 +372,10 @@ let S = {
   days: {},        // { "2025-05-19": { items: [{id,name,menge,einheit,kcal,fett,kh,protein},...] } }
   history: {},     // { "2025-02-19": { kcal,fett,kh,protein } }
   settings: { ziel: 2000, bedarf: 2135 },
-  activeTab: 'heute',
+  activeTab: 'erfassen',
   today: todayISO(),
 };
+let activeDay=todayISO();
 let addMode='db', addFood=null;
 let dbKat='Alle', dbSearch='';
 let chartInst=null;
@@ -405,7 +406,9 @@ function load(){
   }
   if(!S.days) S.days={};
   if(!S.settings) S.settings={ziel:2000,bedarf:2135};
+  if(S.activeTab==='heute') S.activeTab='erfassen';
   S.today=todayISO();
+  activeDay=S.today;
 }
 
 // ===================== HELPERS =====================
@@ -449,33 +452,50 @@ function updateHeader(){
 function switchTab(t){
   S.activeTab=t;
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
-  document.getElementById('fab').style.display=(t==='heute'||t==='db')?'flex':'none';
+  document.getElementById('fab').style.display=(t==='erfassen'||t==='db')?'flex':'none';
   render();
 }
 
 // ===================== RENDER =====================
 function render(){
   const m=document.getElementById('main');
-  if(S.activeTab==='heute') m.innerHTML=renderHeute();
+  if(S.activeTab==='erfassen') m.innerHTML=renderErfassen();
   else if(S.activeTab==='verlauf'){m.innerHTML=renderVerlauf();setTimeout(drawChart,50);}
   else if(S.activeTab==='db') m.innerHTML=renderDB();
   else if(S.activeTab==='cfg') m.innerHTML=renderCfg();
 }
 
 // ---- HEUTE ----
-function renderHeute(){
-  const totals=getTotals(S.today)||{kcal:0,fett:0,kh:0,protein:0};
-  const items=(S.days[S.today]&&S.days[S.today].items)||[];
+function setActiveDay(d){
+  activeDay=d;
+  render();
+}
+
+function renderErfassen(){
+  const isToday=activeDay===S.today;
+  const totals=getTotals(activeDay)||{kcal:0,fett:0,kh:0,protein:0};
+  const items=(S.days[activeDay]&&S.days[activeDay].items)||[];
+  const histOnly=!S.days[activeDay]?.items?.length && !!S.history[activeDay];
   const {ziel,bedarf}=S.settings;
   const over=totals.kcal>ziel;
   const pKcal=pct(totals.kcal,ziel);
-  const pFett=pct(totals.fett,bedarf*0.03); // ~30% of bedarf / 9
-  const pKH=pct(totals.kh,bedarf*0.05);   // rough %
-  const pProt=pct(totals.protein,bedarf*0.025);
   const tProt=Math.round(bedarf*0.025);
 
+  const datePicker=`
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+    <input type="date" value="${activeDay}" max="${S.today}"
+      onchange="setActiveDay(this.value)"
+      style="flex:1;padding:10px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;">
+    ${!isToday?`<button onclick="setActiveDay('${S.today}')" style="padding:10px 14px;border:none;border-radius:10px;background:var(--green);color:#fff;font-size:13px;font-weight:600;font-family:'Outfit',sans-serif;cursor:pointer;white-space:nowrap;">Heute</button>`:''}
+  </div>`;
+
   let itemsHTML='';
-  if(items.length===0){
+  if(histOnly){
+    itemsHTML=`<div class="empty" style="padding:16px 0;">
+      <p style="font-size:13px;color:var(--muted);">Nur Tagessumme vorhanden.</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px;">Neue Einträge überschreiben die Summe.</p>
+    </div>`;
+  } else if(items.length===0){
     itemsHTML=`<div class="empty" style="padding:24px 0;"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.25;display:block;margin:0 auto 8px;"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2z"/><path d="M12 8v4m0 4h.01"/></svg><p>Noch nichts geloggt.</p><p style="margin-top:4px;font-size:12px;">Tippe + um Mahlzeiten hinzuzufügen.</p></div>`;
   } else {
     itemsHTML=items.map((it,i)=>`
@@ -485,11 +505,12 @@ function renderHeute(){
           <div class="log-det">${it.menge} ${it.einheit} · ${it.fett}g F · ${it.kh}g KH · ${it.protein}g P</div>
         </div>
         <span class="log-kcal">${Math.round(it.kcal)} kcal</span>
-        <button class="log-del" onclick="delItem('${S.today}',${i})">×</button>
+        <button class="log-del" onclick="delItem('${activeDay}',${i})">×</button>
       </div>`).join('');
   }
 
   return `
+  ${datePicker}
   <div class="card">
     <div class="kcal-hero">
       <div class="kcal-num${over?' over':''}">${Math.round(totals.kcal)}</div>
@@ -504,7 +525,8 @@ function renderHeute(){
       <div class="mc"><div class="mc-lbl">Protein</div><div class="mc-val">${r1(totals.protein)}g</div><div class="mc-tgt">Ziel ${tProt}g</div></div>
     </div>
   </div>
-  ${items.length>0?`<div class="sec">Heutiger Log</div><div class="card">${itemsHTML}</div>`:`<div class="card">${itemsHTML}</div>`}
+  <div class="sec">${isToday?'Heutiger Log':fmtDELong(activeDay)}</div>
+  <div class="card">${itemsHTML}</div>
   `;
 }
 
@@ -523,11 +545,13 @@ function renderVerlauf(){
   const rows=sorted.map(d=>{
     const v=allDays[d];
     const over=v.kcal>ziel;
+    const hasItems=!!(S.days[d]?.items?.length);
     return `<div class="hist-row">
       <div class="hist-dot${over?' over':''}"></div>
       <div class="hist-date">${fmtDE(d)}</div>
       <div class="hist-kcal${over?' over':''}">${Math.round(v.kcal)} kcal</div>
-      <div class="hist-mac">${Math.round(v.protein)}g P · ${Math.round(v.kh)}g KH</div>
+      <div class="hist-mac" style="flex:1;">${Math.round(v.protein)}g P · ${Math.round(v.kh)}g KH</div>
+      <button onclick="editDay('${d}')" style="border:none;background:none;cursor:pointer;padding:4px;color:var(--muted);font-size:16px;line-height:1;" title="Bearbeiten">✎</button>
     </div>`;
   }).join('');
 
@@ -544,6 +568,43 @@ function renderVerlauf(){
   <div class="sec">Letzte 14 Tage</div>
   <div class="card">${rows||'<div class="empty">Keine Daten</div>'}</div>
   `;
+}
+
+function editDay(d){
+  if(S.days[d]?.items?.length){
+    activeDay=d;
+    switchTab('erfassen');
+  } else {
+    openHistoryEdit(d);
+  }
+}
+
+function openHistoryEdit(d){
+  const h=S.history[d]||{kcal:0,fett:0,kh:0,protein:0};
+  document.getElementById('ef-title').textContent=fmtDELong(d)+' bearbeiten';
+  document.getElementById('ef-body').innerHTML=`
+  <div class="fg" style="margin-top:16px;">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Tagessummen anpassen:</div>
+    <div class="grid4">
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">kcal</div><input class="si" id="he-kcal" type="number" value="${r1(h.kcal)}" inputmode="decimal"></div>
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Fett g</div><input class="si" id="he-fett" type="number" value="${r1(h.fett)}" inputmode="decimal"></div>
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">KH g</div><input class="si" id="he-kh" type="number" value="${r1(h.kh)}" inputmode="decimal"></div>
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Protein g</div><input class="si" id="he-prot" type="number" value="${r1(h.protein)}" inputmode="decimal"></div>
+    </div>
+  </div>
+  <button class="btn-p" onclick="saveHistoryEdit('${d}')">Speichern</button>`;
+  document.getElementById('ef-ov').classList.add('open');
+  document.getElementById('ef-sh').classList.add('open');
+}
+
+function saveHistoryEdit(d){
+  S.history[d]={
+    kcal:parseFloat(document.getElementById('he-kcal')?.value)||0,
+    fett:parseFloat(document.getElementById('he-fett')?.value)||0,
+    kh:parseFloat(document.getElementById('he-kh')?.value)||0,
+    protein:parseFloat(document.getElementById('he-prot')?.value)||0,
+  };
+  save();closeEdit();render();
 }
 
 function getAllDays(){
@@ -1065,10 +1126,10 @@ function addManual(saveDB){
 }
 
 function addToDay(entry){
-  if(!S.days[S.today]) S.days[S.today]={items:[]};
-  S.days[S.today].items.push(entry);
+  if(!S.days[activeDay]) S.days[activeDay]={items:[]};
+  S.days[activeDay].items.push(entry);
   save();
-  if(S.activeTab==='heute') render();
+  if(S.activeTab==='erfassen') render();
 }
 
 function delItem(date,idx){
