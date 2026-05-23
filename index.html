@@ -236,7 +236,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);-web
 <script>
 // ===================== SEED DATA =====================
 const DEFAULT_FOODS=[
- {id:'f01',kat:'Obst',name:'Ananas 4 Scheiben',quelle:'Coop',einheit:'Dose',gew:227,k:50,f:0,c:13,p:0},
+ {id:'f01',kat:'Obst',name:'Ananas 4 Scheiben',quelle:'Coop',einheit:'Packung',gew:227,k:50,f:0,c:13,p:0},
  {id:'f02',kat:'Obst',name:'Apfel (Gala Mittelgross)',quelle:'',einheit:'Stück',gew:150,k:55,f:0.5,c:12,p:0.5},
  {id:'f03',kat:'Süsses',name:'Appenzeller Biberli',quelle:'Coop',einheit:'Stück',gew:75,k:369,f:9,c:61,p:9},
  {id:'f04',kat:'Süsses',name:'Barebells Salted Peanut Caramel',quelle:'Galaxus',einheit:'Stück',gew:55,k:394,f:20,c:29,p:29},
@@ -259,17 +259,17 @@ const DEFAULT_FOODS=[
  {id:'f21',kat:'Fertiggericht',name:'Fajitas Betty Bossi',quelle:'Coop',einheit:'Packung',gew:500,k:71,f:1.8,c:5.1,p:8},
  {id:'f22',kat:'Fertiggericht',name:"Hacktätschli & Kartoffelstock (Anna's Best)",quelle:'Migros',einheit:'Packung',gew:450,k:118,f:6.5,c:9.4,p:4.5},
  {id:'f23',kat:'Fertiggericht',name:'Köfte Betty Bossi',quelle:'Coop',einheit:'Packung',gew:500,k:87,f:3.7,c:6.9,p:6.2},
- {id:'f24',kat:'Fertiggericht',name:'Linsen mit Speck',quelle:'Migros',einheit:'Dose',gew:440,k:98,f:2,c:12,p:6.8},
+ {id:'f24',kat:'Fertiggericht',name:'Linsen mit Speck',quelle:'Migros',einheit:'Packung',gew:440,k:98,f:2,c:12,p:6.8},
  {id:'f25',kat:'Fertiggericht',name:'Pesto Salat',quelle:'Coop',einheit:'Stück',gew:280,k:218,f:9.9,c:26,p:5.3},
  {id:'f26',kat:'Fertiggericht',name:'Poulet Currysalat',quelle:'Coop',einheit:'Stück',gew:335,k:179,f:13,c:6.6,p:7.8},
  {id:'f27',kat:'Fertiggericht',name:'Poulet-Geschnetzeltes Knöpfli',quelle:'Coop',einheit:'Packung',gew:400,k:132,f:5.3,c:13,p:7.7},
- {id:'f28',kat:'Fertiggericht',name:'Ravioli Eier Hero',quelle:'Coop',einheit:'Dose',gew:430,k:84,f:2.2,c:12,p:3.6},
+ {id:'f28',kat:'Fertiggericht',name:'Ravioli Eier Hero',quelle:'Coop',einheit:'Packung',gew:430,k:84,f:2.2,c:12,p:3.6},
  {id:'f29',kat:'Fertiggericht',name:"Reis Italienisch Ben's",quelle:'Coop',einheit:'Stück',gew:220,k:183,f:4.9,c:30,p:4},
  {id:'f30',kat:'Fertiggericht',name:"Reis Mexikanisch Ben's",quelle:'Coop',einheit:'Stück',gew:220,k:152,f:2.1,c:29,p:3.4},
  {id:'f31',kat:'Fertiggericht',name:'Rösti Naturaplan 250g',quelle:'Coop',einheit:'Stück',gew:250,k:95,f:3,c:14,p:1.9},
  {id:'f32',kat:'Fertiggericht',name:'Stocki',quelle:'Coop',einheit:'Packung',gew:612,k:64,f:0.9,c:11,p:2.2},
  {id:'f33',kat:'Fertiggericht',name:"Tandori-Poulet mit Reis (Anna's Best)",quelle:'Migros',einheit:'Packung',gew:400,k:137,f:3.4,c:19,p:7.2},
- {id:'f34',kat:'Gemüse',name:'Bohnen',quelle:'Migros',einheit:'Dose',gew:210,k:31,f:0.5,c:3.6,p:2.1},
+ {id:'f34',kat:'Gemüse',name:'Bohnen',quelle:'Migros',einheit:'Packung',gew:210,k:31,f:0.5,c:3.6,p:2.1},
  {id:'f35',kat:'Gemüse',name:'Erbsen & Karotten Dose (Hero)',quelle:'Coop',einheit:'Stück',gew:260,k:71,f:0.5,c:11,p:3.5},
  {id:'f36',kat:'Gemüse',name:'Russischer Salat',quelle:'Coop',einheit:'Stück',gew:260,k:54,f:0.3,c:8.9,p:2.3},
  {id:'f37',kat:'Gemüse',name:'Zwiebel',quelle:'',einheit:'g',gew:1,k:28,f:0.3,c:6.7,p:1.2},
@@ -407,6 +407,7 @@ function load(){
   if(!S.days) S.days={};
   if(!S.settings) S.settings={ziel:2000,bedarf:2135};
   if(S.activeTab==='heute') S.activeTab='erfassen';
+  S.foods.forEach(f=>{if(f.einheit==='Dose') f.einheit='Packung';});
   S.today=todayISO();
   activeDay=S.today;
 }
@@ -890,10 +891,13 @@ function renderBCForm(prefill={}){
         <option value="Stück"${(prefill.ein||'Stück')==='Stück'?' selected':''}>Stück</option>
         <option value="Gramm"${prefill.ein==='Gramm'?' selected':''}>Gramm</option>
         <option value="Milliliter"${prefill.ein==='Milliliter'?' selected':''}>Milliliter</option>
-        <option value="Packung"${prefill.ein==='Packung'?' selected':''}>Packung</option>
-        <option value="Dose"${prefill.ein==='Dose'?' selected':''}>Dose</option>
+        <option value="Packung"${(prefill.ein==='Packung'||prefill.ein==='Dose')?' selected':''}>Packung</option>
       </select>
     </div>
+  </div>
+  <div class="fg" id="bc-anzahl-row" style="${(['Gramm','Milliliter'].includes(prefill.ein||'Stück'))?'display:none':''}">
+    <label class="fl">Anzahl</label>
+    <input class="si" id="bc-anzahl" type="number" value="${prefill.anzahl||1}" min="0.5" step="0.5" inputmode="decimal">
   </div>
   <button class="btn-p" onclick="addManual(false)">Einmalig hinzufügen</button>
   <button class="btn-s" onclick="addManual(true)">+ In Datenbank speichern</button>
@@ -904,11 +908,14 @@ function onEinheitChange(){
   const ein=document.getElementById('bc-ein')?.value;
   const lbl=document.getElementById('bc-gew-lbl');
   const gewInp=document.getElementById('bc-gew');
+  const anzahlRow=document.getElementById('bc-anzahl-row');
   if(!lbl||!gewInp) return;
+  const isVol=(ein==='Gramm'||ein==='Milliliter');
   if(ein==='Gramm'){lbl.textContent='Wie viel Gramm?';gewInp.placeholder='z.B. 150';}
   else if(ein==='Milliliter'){lbl.textContent='Wie viel ml?';gewInp.placeholder='z.B. 250';}
-  else if(ein==='Packung'||ein==='Dose'){lbl.textContent=`Gramm pro ${ein}`;gewInp.placeholder='z.B. 400';}
-  else {lbl.textContent='Gramm pro Stück';gewInp.placeholder='z.B. 150';}
+  else if(ein==='Packung'){lbl.textContent='Gramm pro Packung';gewInp.placeholder='z.B. 400';}
+  else{lbl.textContent='Gramm pro Stück';gewInp.placeholder='z.B. 150';}
+  if(anzahlRow) anzahlRow.style.display=isVol?'none':'';
 }
 
 function setBarcodeStatus(msg, level=''){
@@ -1089,9 +1096,12 @@ async function lookupBarcode(){
             <option value="Gramm">Gramm</option>
             <option value="Milliliter">Milliliter</option>
             <option value="Packung">Packung</option>
-            <option value="Dose">Dose</option>
           </select>
         </div>
+      </div>
+      <div class="fg" id="bc-anzahl-row">
+        <label class="fl">Anzahl</label>
+        <input class="si" id="bc-anzahl" type="number" value="1" min="0.5" step="0.5" inputmode="decimal">
       </div>
       <button class="btn-p" onclick="addManual(false)">Einmalig hinzufügen</button>
       <button class="btn-s" onclick="addManual(true)">+ In Datenbank speichern</button>`;
@@ -1112,12 +1122,12 @@ function addManual(saveDB){
   const p=parseFloat(document.getElementById('bc-p')?.value)||0;
   const gew=parseFloat(document.getElementById('bc-gew')?.value)||100;
   const ein=document.getElementById('bc-ein')?.value||'Stück';
-  const isVolOrWeight=(ein==='Gramm'||ein==='Milliliter');
+  const isVol=(ein==='Gramm'||ein==='Milliliter');
+  const anzahl=isVol?1:(parseFloat(document.getElementById('bc-anzahl')?.value)||1);
   const mult=gew/100;
-  // For Gramm/Milliliter: show actual amount in log (e.g. "150 Gramm"), save gew:1 to DB
-  const entryMenge=isVolOrWeight?gew:1;
-  const dbGew=isVolOrWeight?1:gew;
-  const entry={name,menge:entryMenge,einheit:ein,kcal:r1(k*mult),fett:r1(f*mult),kh:r1(c*mult),protein:r1(p*mult)};
+  const entryMenge=isVol?gew:anzahl;
+  const dbGew=isVol?1:gew;
+  const entry={name,menge:entryMenge,einheit:ein,kcal:r1(k*mult*anzahl),fett:r1(f*mult*anzahl),kh:r1(c*mult*anzahl),protein:r1(p*mult*anzahl)};
   if(saveDB){
     S.foods.push({id:uid(),kat:'Sonstiges',name,quelle:'',einheit:ein,gew:dbGew,k,f,c,p});
   }
@@ -1167,7 +1177,14 @@ function openEdit(food){
   </div></div>
   <div class="fg grid2">
     <div><label class="fl">Gewicht pro Einheit (g)</label><input class="si" id="ef-gew" type="number" value="${f.gew}" inputmode="decimal"></div>
-    <div><label class="fl">Einheit</label><input class="si" id="ef-ein" value="${f.einheit}" placeholder="Stück, Dose…"></div>
+    <div><label class="fl">Einheit</label>
+      <select class="si" id="ef-ein" style="-webkit-appearance:auto">
+        <option value="Stück"${(f.einheit==='Stück'||!f.einheit)?' selected':''}>Stück</option>
+        <option value="Gramm"${f.einheit==='Gramm'?' selected':''}>Gramm</option>
+        <option value="Milliliter"${f.einheit==='Milliliter'?' selected':''}>Milliliter</option>
+        <option value="Packung"${(f.einheit==='Packung'||f.einheit==='Dose')?' selected':''}>Packung</option>
+      </select>
+    </div>
   </div>
   <button class="btn-p" onclick="saveFood('${f.id}')">Speichern</button>
   ${f.id?`<button class="btn-s" style="color:var(--orange);border-color:var(--orange);" onclick="confirmDelFood('${f.id}');closeEdit()">Löschen</button>`:''}
