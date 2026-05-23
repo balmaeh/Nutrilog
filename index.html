@@ -6,7 +6,7 @@
 <title>NutriLog</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
 <style>
 :root{--bg:#F7F5F1;--card:#FFF;--border:#E8E3DB;--text:#1A1614;--muted:#7B766F;--green:#1B4D2E;--glt:#EBF5EE;--orange:#D4520C;--olt:#FEF0E7;--r:12px;--tbh:72px;--hdh:64px;}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -380,8 +380,10 @@ let editFood=null;
 let cameraStream=null;
 let cameraScanTimer=null;
 let barcodeDetector=null;
-let quaggaActive=false;
-let quaggaDetectedCallback=null;
+let zxingReader=null;
+let barcodeCandidate=null;
+let barcodeCandidateCount=0;
+const BARCODE_CONFIRM=2;
 
 function todayISO(){return new Date().toISOString().slice(0,10);}
 
@@ -794,7 +796,7 @@ function renderBCForm(prefill={}){
   return `
   <div style="padding:4px 20px 8px;font-size:13px;color:var(--muted);">EAN-Barcode eingeben → Nährwerte werden automatisch ausgefüllt.</div>
   <div class="bc-row">
-    <input id="bc-inp" class="bc-inp" type="number" placeholder="EAN-Code (z.B. 7611100000000)" inputmode="numeric">
+    <input id="bc-inp" class="bc-inp" type="text" placeholder="EAN-Code (z.B. 7611100000000)" inputmode="numeric">
     <button class="bc-btn" onclick="lookupBarcode()">Suchen</button>
   </div>
   <div class="bc-row">
@@ -816,12 +818,31 @@ function renderBCForm(prefill={}){
     </div>
   </div>
   <div class="fg grid2">
-    <div><label class="fl">Menge / Gramm</label><input class="si" id="bc-gew" type="number" value="${prefill.gew||100}" inputmode="decimal"></div>
-    <div><label class="fl">Einheit</label><input class="si" id="bc-ein" value="${prefill.ein||'Portion'}" placeholder="Stück, Portion…"></div>
+    <div><label class="fl" id="bc-gew-lbl">Gramm pro Stück</label><input class="si" id="bc-gew" type="number" value="${prefill.gew||100}" inputmode="decimal"></div>
+    <div><label class="fl">Einheit</label>
+      <select class="si" id="bc-ein" onchange="onEinheitChange()" style="-webkit-appearance:auto">
+        <option value="Stück"${(prefill.ein||'Stück')==='Stück'?' selected':''}>Stück</option>
+        <option value="Gramm"${prefill.ein==='Gramm'?' selected':''}>Gramm</option>
+        <option value="Milliliter"${prefill.ein==='Milliliter'?' selected':''}>Milliliter</option>
+        <option value="Packung"${prefill.ein==='Packung'?' selected':''}>Packung</option>
+        <option value="Dose"${prefill.ein==='Dose'?' selected':''}>Dose</option>
+      </select>
+    </div>
   </div>
   <button class="btn-p" onclick="addManual(false)">Einmalig hinzufügen</button>
   <button class="btn-s" onclick="addManual(true)">+ In Datenbank speichern</button>
   `;
+}
+
+function onEinheitChange(){
+  const ein=document.getElementById('bc-ein')?.value;
+  const lbl=document.getElementById('bc-gew-lbl');
+  const gewInp=document.getElementById('bc-gew');
+  if(!lbl||!gewInp) return;
+  if(ein==='Gramm'){lbl.textContent='Wie viel Gramm?';gewInp.placeholder='z.B. 150';}
+  else if(ein==='Milliliter'){lbl.textContent='Wie viel ml?';gewInp.placeholder='z.B. 250';}
+  else if(ein==='Packung'||ein==='Dose'){lbl.textContent=`Gramm pro ${ein}`;gewInp.placeholder='z.B. 400';}
+  else {lbl.textContent='Gramm pro Stück';gewInp.placeholder='z.B. 150';}
 }
 
 function setBarcodeStatus(msg, level=''){
@@ -839,101 +860,105 @@ function showBarcodeCamera(open){
   cam.classList.toggle('open', open);
 }
 
+function normalizeBarcode(raw){
+  return typeof raw==='string' ? raw.replace(/\D/g,'') : '';
+}
+
+function isValidBarcode(code){
+  if(!code || !/^[0-9]+$/.test(code)) return false;
+  if(code.length!==8 && code.length!==12 && code.length!==13) return false;
+  const digits=code.split('').map(Number);
+  const check=digits.pop();
+  let sum=0;
+  for(let i=digits.length-1, pos=0; i>=0; i--, pos++){
+    sum+=digits[i]*((pos%2===0)?3:1);
+  }
+  return ((10-(sum%10))%10)===check;
+}
+
+function onBarcodeRead(rawValue){
+  const code=normalizeBarcode(rawValue);
+  if(!isValidBarcode(code)) return;
+  if(code===barcodeCandidate){
+    barcodeCandidateCount++;
+  } else {
+    barcodeCandidate=code;
+    barcodeCandidateCount=1;
+  }
+  if(barcodeCandidateCount>=BARCODE_CONFIRM){
+    stopBarcodeCamera();
+    const inp=document.getElementById('bc-inp');
+    if(inp) inp.value=code;
+    lookupBarcode();
+  }
+}
+
 function stopBarcodeCamera(){
   if(cameraScanTimer){clearInterval(cameraScanTimer);cameraScanTimer=null;}
-  if(quaggaActive){
-    if(quaggaDetectedCallback) Quagga.offDetected(quaggaDetectedCallback);
-    Quagga.stop();
-    quaggaActive=false;
-    quaggaDetectedCallback=null;
-  }
+  if(zxingReader){try{zxingReader.reset();}catch(e){} zxingReader=null;}
   if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null;}
+  barcodeCandidate=null;
+  barcodeCandidateCount=0;
   const video=document.getElementById('bc-video');
   if(video){video.srcObject=null;}
   showBarcodeCamera(false);
 }
 
-async function startBarcodeCamera(){
-  stopBarcodeCamera();
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-    setBarcodeStatus('Kamera nicht verfügbar.', 'err');
+async function startWithZXing(){
+  if(!window.ZXing){
+    setBarcodeStatus('Barcode-Scanner nicht verfügbar.','err');
+    showBarcodeCamera(false);
     return;
   }
-  const video=document.getElementById('bc-video');
-  if(!video){ setBarcodeStatus('Kamera-Element fehlt.', 'err'); return; }
+  try{
+    zxingReader=new ZXing.BrowserMultiFormatReader();
+    const video=document.getElementById('bc-video');
+    setBarcodeStatus('Barcode ins Bild halten…','ok');
+    await zxingReader.decodeFromVideoDevice(null, video, (result, err)=>{
+      if(result) onBarcodeRead(result.getText());
+    });
+  }catch(e){
+    setBarcodeStatus('Kamera konnte nicht gestartet werden.','err');
+    showBarcodeCamera(false);
+    if(zxingReader){try{zxingReader.reset();}catch(e){} zxingReader=null;}
+  }
+}
+
+async function startBarcodeCamera(){
+  stopBarcodeCamera();
+  if(!navigator.mediaDevices?.getUserMedia){
+    setBarcodeStatus('Kamera nicht verfügbar.','err');
+    return;
+  }
   showBarcodeCamera(true);
   setBarcodeStatus('Kamera öffnet…');
   if('BarcodeDetector' in window){
     try{
-      if(!barcodeDetector){
-        const formats=await BarcodeDetector.getSupportedFormats();
-        const supportedFormats=formats.filter(f=>['ean_13','ean_8','upc_e','upc_a'].includes(f));
-        if(!supportedFormats.length){
-          setBarcodeStatus('Kein gültiges Barcode-Format verfügbar.', 'err');
-          stopBarcodeCamera();
-          return;
-        }
-        barcodeDetector=new BarcodeDetector({formats:supportedFormats});
-      }
+      const allFormats=await BarcodeDetector.getSupportedFormats();
+      const formats=allFormats.filter(f=>['ean_8','ean_13','upc_a','upc_e'].includes(f));
+      if(!formats.length) throw new Error('no formats');
+      if(!barcodeDetector) barcodeDetector=new BarcodeDetector({formats});
       const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
       cameraStream=stream;
+      const video=document.getElementById('bc-video');
       video.srcObject=stream;
       await video.play();
-      setBarcodeStatus('Barcode ins Bild halten...', 'ok');
-      cameraScanTimer=setInterval(async ()=>{
+      setBarcodeStatus('Barcode ins Bild halten…','ok');
+      cameraScanTimer=setInterval(async()=>{
         if(video.paused||video.readyState<2) return;
         try{
           const codes=await barcodeDetector.detect(video);
-          if(codes&&codes.length){
-            const code=codes[0].rawValue;
-            if(code){
-              stopBarcodeCamera();
-              document.getElementById('bc-inp').value=code;
-              lookupBarcode();
-            }
-          }
-        }catch(e){
-          console.warn('Barcode scan error', e);
-        }
-      },300);
+          if(codes.length) onBarcodeRead(codes[0].rawValue);
+        }catch(e){}
+      },500);
     }catch(e){
-      console.warn(e);
-      setBarcodeStatus('Kamera konnte nicht gestartet werden.', 'err');
       stopBarcodeCamera();
-    }
-  } else if(window.Quagga){
-    try{
-      await new Promise((resolve, reject)=>{
-        Quagga.init({
-          inputStream:{
-            type:'LiveStream',
-            target:document.getElementById('bc-camera'),
-            constraints:{facingMode:'environment'}
-          },
-          decoder:{readers:['ean_reader','ean_8_reader','upc_reader','upc_e_reader']},
-          locate:true
-        }, err=>err?reject(err):resolve());
-      });
-      Quagga.start();
-      quaggaActive=true;
-      quaggaDetectedCallback=result=>{
-        const code=result.codeResult && result.codeResult.code;
-        if(code){
-          stopBarcodeCamera();
-          document.getElementById('bc-inp').value=code;
-          lookupBarcode();
-        }
-      };
-      Quagga.onDetected(quaggaDetectedCallback);
-      setBarcodeStatus('Barcode ins Bild halten...', 'ok');
-    }catch(e){
-      console.warn(e);
-      setBarcodeStatus('Barcode-Scan nicht möglich.', 'err');
-      stopBarcodeCamera();
+      showBarcodeCamera(true);
+      setBarcodeStatus('Kamera öffnet…');
+      await startWithZXing();
     }
   } else {
-    setBarcodeStatus('Browser unterstützt keinen Barcode-Scan.', 'err');
-    stopBarcodeCamera();
+    await startWithZXing();
   }
 }
 
@@ -956,7 +981,7 @@ async function lookupBarcode(){
       st.className='status ok';st.textContent=`✓ Gefunden: ${nm||'Unbekannt'}`;
       // refill form
       const body=document.getElementById('add-body');
-      body.innerHTML=`<div class="bc-row"><input id="bc-inp" class="bc-inp" type="number" value="${ean}" inputmode="numeric"><button class="bc-btn" onclick="lookupBarcode()">Suchen</button></div>
+      body.innerHTML=`<div class="bc-row"><input id="bc-inp" class="bc-inp" type="text" value="${ean}" inputmode="numeric"><button class="bc-btn" onclick="lookupBarcode()">Suchen</button></div>
       <div class="bc-row"><button class="bc-btn" style="flex:1;background:#3B5F3F;" onclick="startBarcodeCamera()">Kamera scannen</button></div>
       <div class="status ok" id="bc-status">✓ Gefunden: ${nm||'Produkt'}</div>
       <div class="bc-camera" id="bc-camera" hidden>
@@ -972,8 +997,16 @@ async function lookupBarcode(){
         <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Protein g</div><input class="si" id="bc-p" type="number" value="${r1(nu.proteins_100g||0)}" inputmode="decimal"></div>
       </div></div>
       <div class="fg grid2">
-        <div><label class="fl">Gramm / Menge</label><input class="si" id="bc-gew" type="number" value="${qty}" inputmode="decimal"></div>
-        <div><label class="fl">Einheit</label><input class="si" id="bc-ein" value="Portion"></div>
+        <div><label class="fl" id="bc-gew-lbl">Gramm pro Stück</label><input class="si" id="bc-gew" type="number" value="${qty}" inputmode="decimal"></div>
+        <div><label class="fl">Einheit</label>
+          <select class="si" id="bc-ein" onchange="onEinheitChange()" style="-webkit-appearance:auto">
+            <option value="Stück" selected>Stück</option>
+            <option value="Gramm">Gramm</option>
+            <option value="Milliliter">Milliliter</option>
+            <option value="Packung">Packung</option>
+            <option value="Dose">Dose</option>
+          </select>
+        </div>
       </div>
       <button class="btn-p" onclick="addManual(false)">Einmalig hinzufügen</button>
       <button class="btn-s" onclick="addManual(true)">+ In Datenbank speichern</button>`;
@@ -993,11 +1026,15 @@ function addManual(saveDB){
   const c=parseFloat(document.getElementById('bc-c')?.value)||0;
   const p=parseFloat(document.getElementById('bc-p')?.value)||0;
   const gew=parseFloat(document.getElementById('bc-gew')?.value)||100;
-  const ein=document.getElementById('bc-ein')?.value||'Portion';
+  const ein=document.getElementById('bc-ein')?.value||'Stück';
+  const isVolOrWeight=(ein==='Gramm'||ein==='Milliliter');
   const mult=gew/100;
-  const entry={name,menge:1,einheit:ein,kcal:r1(k*mult),fett:r1(f*mult),kh:r1(c*mult),protein:r1(p*mult)};
+  // For Gramm/Milliliter: show actual amount in log (e.g. "150 Gramm"), save gew:1 to DB
+  const entryMenge=isVolOrWeight?gew:1;
+  const dbGew=isVolOrWeight?1:gew;
+  const entry={name,menge:entryMenge,einheit:ein,kcal:r1(k*mult),fett:r1(f*mult),kh:r1(c*mult),protein:r1(p*mult)};
   if(saveDB){
-    S.foods.push({id:uid(),kat:'Sonstiges',name,quelle:'',einheit:ein,gew,k,f,c,p});
+    S.foods.push({id:uid(),kat:'Sonstiges',name,quelle:'',einheit:ein,gew:dbGew,k,f,c,p});
   }
   addToDay(entry);
   closeAdd();
