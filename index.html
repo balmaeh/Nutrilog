@@ -6,6 +6,7 @@
 <title>NutriLog</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
 <style>
 :root{--bg:#F7F5F1;--card:#FFF;--border:#E8E3DB;--text:#1A1614;--muted:#7B766F;--green:#1B4D2E;--glt:#EBF5EE;--orange:#D4520C;--olt:#FEF0E7;--r:12px;--tbh:72px;--hdh:64px;}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -379,6 +380,8 @@ let editFood=null;
 let cameraStream=null;
 let cameraScanTimer=null;
 let barcodeDetector=null;
+let quaggaActive=false;
+let quaggaDetectedCallback=null;
 
 function todayISO(){return new Date().toISOString().slice(0,10);}
 
@@ -838,6 +841,12 @@ function showBarcodeCamera(open){
 
 function stopBarcodeCamera(){
   if(cameraScanTimer){clearInterval(cameraScanTimer);cameraScanTimer=null;}
+  if(quaggaActive){
+    if(quaggaDetectedCallback) Quagga.offDetected(quaggaDetectedCallback);
+    Quagga.stop();
+    quaggaActive=false;
+    quaggaDetectedCallback=null;
+  }
   if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null;}
   const video=document.getElementById('bc-video');
   if(video){video.srcObject=null;}
@@ -850,48 +859,80 @@ async function startBarcodeCamera(){
     setBarcodeStatus('Kamera nicht verfügbar.', 'err');
     return;
   }
-  if(!('BarcodeDetector' in window)){
-    setBarcodeStatus('Browser unterstützt keinen Barcode-Scan.', 'err');
-    return;
-  }
-  try{
-    if(!barcodeDetector){
-      const formats=await BarcodeDetector.getSupportedFormats();
-      const supportedFormats=formats.filter(f=>['ean_13','ean_8','upc_e','upc_a'].includes(f));
-      if(!supportedFormats.length){
-        setBarcodeStatus('Kein gültiges Barcode-Format verfügbar.', 'err');
-        return;
-      }
-      barcodeDetector=new BarcodeDetector({formats:supportedFormats});
-    }
-    const video=document.getElementById('bc-video');
-    if(!video){ setBarcodeStatus('Kamera-Element fehlt.', 'err'); return; }
-    setBarcodeStatus('Kamera öffnet…');
-    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-    cameraStream=stream;
-    video.srcObject=stream;
-    video.play().catch(()=>{});
-    showBarcodeCamera(true);
-    setBarcodeStatus('Barcode ins Bild halten...', 'ok');
-    cameraScanTimer=setInterval(async ()=>{
-      if(!video||video.paused||video.readyState<2) return;
-      try{
-        const codes=await barcodeDetector.detect(video);
-        if(codes&&codes.length){
-          const code=codes[0].rawValue;
-          if(code){
-            stopBarcodeCamera();
-            document.getElementById('bc-inp').value=code;
-            lookupBarcode();
-          }
+  const video=document.getElementById('bc-video');
+  if(!video){ setBarcodeStatus('Kamera-Element fehlt.', 'err'); return; }
+  showBarcodeCamera(true);
+  setBarcodeStatus('Kamera öffnet…');
+  if('BarcodeDetector' in window){
+    try{
+      if(!barcodeDetector){
+        const formats=await BarcodeDetector.getSupportedFormats();
+        const supportedFormats=formats.filter(f=>['ean_13','ean_8','upc_e','upc_a'].includes(f));
+        if(!supportedFormats.length){
+          setBarcodeStatus('Kein gültiges Barcode-Format verfügbar.', 'err');
+          stopBarcodeCamera();
+          return;
         }
-      }catch(e){
-        console.warn('Barcode scan error', e);
+        barcodeDetector=new BarcodeDetector({formats:supportedFormats});
       }
-    },300);
-  }catch(e){
-    console.warn(e);
-    setBarcodeStatus('Kamera konnte nicht gestartet werden.', 'err');
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      cameraStream=stream;
+      video.srcObject=stream;
+      await video.play();
+      setBarcodeStatus('Barcode ins Bild halten...', 'ok');
+      cameraScanTimer=setInterval(async ()=>{
+        if(video.paused||video.readyState<2) return;
+        try{
+          const codes=await barcodeDetector.detect(video);
+          if(codes&&codes.length){
+            const code=codes[0].rawValue;
+            if(code){
+              stopBarcodeCamera();
+              document.getElementById('bc-inp').value=code;
+              lookupBarcode();
+            }
+          }
+        }catch(e){
+          console.warn('Barcode scan error', e);
+        }
+      },300);
+    }catch(e){
+      console.warn(e);
+      setBarcodeStatus('Kamera konnte nicht gestartet werden.', 'err');
+      stopBarcodeCamera();
+    }
+  } else if(window.Quagga){
+    try{
+      await new Promise((resolve, reject)=>{
+        Quagga.init({
+          inputStream:{
+            type:'LiveStream',
+            target:document.getElementById('bc-camera'),
+            constraints:{facingMode:'environment'}
+          },
+          decoder:{readers:['ean_reader','ean_8_reader','upc_reader','upc_e_reader']},
+          locate:true
+        }, err=>err?reject(err):resolve());
+      });
+      Quagga.start();
+      quaggaActive=true;
+      quaggaDetectedCallback=result=>{
+        const code=result.codeResult && result.codeResult.code;
+        if(code){
+          stopBarcodeCamera();
+          document.getElementById('bc-inp').value=code;
+          lookupBarcode();
+        }
+      };
+      Quagga.onDetected(quaggaDetectedCallback);
+      setBarcodeStatus('Barcode ins Bild halten...', 'ok');
+    }catch(e){
+      console.warn(e);
+      setBarcodeStatus('Barcode-Scan nicht möglich.', 'err');
+      stopBarcodeCamera();
+    }
+  } else {
+    setBarcodeStatus('Browser unterstützt keinen Barcode-Scan.', 'err');
     stopBarcodeCamera();
   }
 }
