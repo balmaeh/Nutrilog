@@ -120,6 +120,11 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);-web
 .bc-inp{flex:1;padding:11px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;}
 .bc-inp:focus{border-color:var(--green);}
 .bc-btn{padding:11px 16px;border:none;border-radius:10px;background:var(--green);color:#fff;font-size:14px;font-weight:600;font-family:'Outfit',sans-serif;cursor:pointer;white-space:nowrap;}
+.bc-camera{position:relative;margin:0 20px 12px;border:1.5px solid var(--border);border-radius:16px;overflow:hidden;background:#000;min-height:180px;display:none;}
+.bc-camera.open{display:block;}
+.bc-camera video{width:100%;height:auto;display:block;}
+.bc-close{position:absolute;top:12px;right:12px;border:none;background:rgba(0,0,0,.5);color:#fff;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.cam-hint{position:absolute;bottom:12px;left:12px;padding:6px 10px;background:rgba(0,0,0,.55);color:#fff;font-size:12px;border-radius:999px;}
 .status{padding:0 20px 10px;font-size:13px;color:var(--muted);}
 .status.ok{color:var(--green);}
 .status.err{color:var(--orange);}
@@ -371,6 +376,9 @@ let addMode='db', addFood=null;
 let dbKat='Alle', dbSearch='';
 let chartInst=null;
 let editFood=null;
+let cameraStream=null;
+let cameraScanTimer=null;
+let barcodeDetector=null;
 
 function todayISO(){return new Date().toISOString().slice(0,10);}
 
@@ -698,11 +706,13 @@ function closeAdd(){
   document.getElementById('add-ov').classList.remove('open');
   document.getElementById('add-sh').classList.remove('open');
   addFood=null;
+  stopBarcodeCamera();
 }
 function switchAddMode(m){
   addMode=m;
   document.getElementById('seg-db').classList.toggle('active',m==='db');
   document.getElementById('seg-bc').classList.toggle('active',m==='bc');
+  stopBarcodeCamera();
   renderAddBody();
 }
 function renderAddBody(){
@@ -784,7 +794,15 @@ function renderBCForm(prefill={}){
     <input id="bc-inp" class="bc-inp" type="number" placeholder="EAN-Code (z.B. 7611100000000)" inputmode="numeric">
     <button class="bc-btn" onclick="lookupBarcode()">Suchen</button>
   </div>
+  <div class="bc-row">
+    <button class="bc-btn" style="flex:1;background:#3B5F3F;" onclick="startBarcodeCamera()">Kamera scannen</button>
+  </div>
   <div class="status" id="bc-status"></div>
+  <div class="bc-camera" id="bc-camera" hidden>
+    <video id="bc-video" autoplay playsinline muted></video>
+    <button class="bc-close" onclick="stopBarcodeCamera()" type="button">✕</button>
+    <div class="cam-hint">Barcode ins Bild halten</div>
+  </div>
   <div class="fg"><label class="fl">Name</label><input class="si" id="bc-name" value="${prefill.name||''}" placeholder="z.B. Quark Nature"></div>
   <div class="fg"><label class="fl">Nährwerte pro 100g</label>
     <div class="grid4">
@@ -803,7 +821,83 @@ function renderBCForm(prefill={}){
   `;
 }
 
+function setBarcodeStatus(msg, level=''){
+  const st=document.getElementById('bc-status');
+  if(!st) return;
+  st.className='status';
+  if(level) st.classList.add(level);
+  st.textContent=msg;
+}
+
+function showBarcodeCamera(open){
+  const cam=document.getElementById('bc-camera');
+  if(!cam) return;
+  cam.hidden=!open;
+  cam.classList.toggle('open', open);
+}
+
+function stopBarcodeCamera(){
+  if(cameraScanTimer){clearInterval(cameraScanTimer);cameraScanTimer=null;}
+  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null;}
+  const video=document.getElementById('bc-video');
+  if(video){video.srcObject=null;}
+  showBarcodeCamera(false);
+}
+
+async function startBarcodeCamera(){
+  stopBarcodeCamera();
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    setBarcodeStatus('Kamera nicht verfügbar.', 'err');
+    return;
+  }
+  if(!('BarcodeDetector' in window)){
+    setBarcodeStatus('Browser unterstützt keinen Barcode-Scan.', 'err');
+    return;
+  }
+  try{
+    if(!barcodeDetector){
+      const formats=await BarcodeDetector.getSupportedFormats();
+      const supportedFormats=formats.filter(f=>['ean_13','ean_8','upc_e','upc_a'].includes(f));
+      if(!supportedFormats.length){
+        setBarcodeStatus('Kein gültiges Barcode-Format verfügbar.', 'err');
+        return;
+      }
+      barcodeDetector=new BarcodeDetector({formats:supportedFormats});
+    }
+    const video=document.getElementById('bc-video');
+    if(!video){ setBarcodeStatus('Kamera-Element fehlt.', 'err'); return; }
+    setBarcodeStatus('Kamera öffnet…');
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    cameraStream=stream;
+    video.srcObject=stream;
+    video.play().catch(()=>{});
+    showBarcodeCamera(true);
+    setBarcodeStatus('Barcode ins Bild halten...', 'ok');
+    cameraScanTimer=setInterval(async ()=>{
+      if(!video||video.paused||video.readyState<2) return;
+      try{
+        const codes=await barcodeDetector.detect(video);
+        if(codes&&codes.length){
+          const code=codes[0].rawValue;
+          if(code){
+            stopBarcodeCamera();
+            document.getElementById('bc-inp').value=code;
+            lookupBarcode();
+          }
+        }
+      }catch(e){
+        console.warn('Barcode scan error', e);
+      }
+    },300);
+  }catch(e){
+    console.warn(e);
+    setBarcodeStatus('Kamera konnte nicht gestartet werden.', 'err');
+    stopBarcodeCamera();
+  }
+}
+
 async function lookupBarcode(){
+  stopBarcodeCamera();
   const ean=document.getElementById('bc-inp')?.value?.trim();
   if(!ean){return;}
   const st=document.getElementById('bc-status');
@@ -819,11 +913,16 @@ async function lookupBarcode(){
       const kcal=nu['energy-kcal_100g']||k||0;
       const qty=parseFloat(pr.serving_size)||parseFloat(pr.product_quantity)||100;
       st.className='status ok';st.textContent=`✓ Gefunden: ${nm||'Unbekannt'}`;
-      document.getElementById('bc-body')?.remove();
       // refill form
       const body=document.getElementById('add-body');
       body.innerHTML=`<div class="bc-row"><input id="bc-inp" class="bc-inp" type="number" value="${ean}" inputmode="numeric"><button class="bc-btn" onclick="lookupBarcode()">Suchen</button></div>
+      <div class="bc-row"><button class="bc-btn" style="flex:1;background:#3B5F3F;" onclick="startBarcodeCamera()">Kamera scannen</button></div>
       <div class="status ok" id="bc-status">✓ Gefunden: ${nm||'Produkt'}</div>
+      <div class="bc-camera" id="bc-camera" hidden>
+        <video id="bc-video" autoplay playsinline muted></video>
+        <button class="bc-close" onclick="stopBarcodeCamera()" type="button">✕</button>
+        <div class="cam-hint">Barcode ins Bild halten</div>
+      </div>
       <div class="fg"><label class="fl">Name</label><input class="si" id="bc-name" value="${nm}"></div>
       <div class="fg"><label class="fl">Nährwerte pro 100g</label><div class="grid4">
         <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">kcal</div><input class="si" id="bc-k" type="number" value="${r1(kcal)}" inputmode="decimal"></div>
