@@ -126,6 +126,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);-web
 .bc-camera video{width:100%;height:auto;display:block;}
 .bc-close{position:absolute;top:12px;right:12px;border:none;background:rgba(0,0,0,.5);color:#fff;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 .cam-hint{position:absolute;bottom:12px;left:12px;padding:6px 10px;background:rgba(0,0,0,.55);color:#fff;font-size:12px;border-radius:999px;}
+.cam-debug{position:absolute;top:12px;left:12px;right:50px;background:rgba(0,0,0,.7);color:#0f0;font-family:'DM Mono',monospace;font-size:11px;border-radius:6px;padding:6px 8px;max-height:120px;overflow-y:auto;display:none;}
+.cam-debug.active{display:block;}
 .status{padding:0 20px 10px;font-size:13px;color:var(--muted);}
 .status.ok{color:var(--green);}
 .status.err{color:var(--orange);}
@@ -384,6 +386,7 @@ let zxingReader=null;
 let barcodeCandidate=null;
 let barcodeCandidateCount=0;
 const BARCODE_CONFIRM=2;
+let debugMode=false;
 
 function todayISO(){return new Date().toISOString().slice(0,10);}
 
@@ -800,13 +803,15 @@ function renderBCForm(prefill={}){
     <button class="bc-btn" onclick="lookupBarcode()">Suchen</button>
   </div>
   <div class="bc-row">
-    <button class="bc-btn" style="flex:1;background:#3B5F3F;" onclick="startBarcodeCamera()">Kamera scannen</button>
+    <button class="bc-btn" style="flex:1;background:#3B5F3F;" onclick="startBarcodeCamera(false)">Kamera scannen</button>
+    <button class="bc-btn" style="background:#555;" onclick="startBarcodeCamera(true)" title="Debug-Modus">🔍</button>
   </div>
   <div class="status" id="bc-status"></div>
   <div class="bc-camera" id="bc-camera" hidden>
     <video id="bc-video" autoplay playsinline muted></video>
     <button class="bc-close" onclick="stopBarcodeCamera()" type="button">✕</button>
-    <div class="cam-hint">Barcode ins Bild halten</div>
+    <div class="cam-debug" id="cam-debug"></div>
+    <div class="cam-hint" id="cam-hint">Barcode ins Bild halten</div>
   </div>
   <div class="fg"><label class="fl">Name</label><input class="si" id="bc-name" value="${prefill.name||''}" placeholder="z.B. Quark Nature"></div>
   <div class="fg"><label class="fl">Nährwerte pro 100g</label>
@@ -876,14 +881,28 @@ function isValidBarcode(code){
   return ((10-(sum%10))%10)===check;
 }
 
+function debugLog(msg){
+  if(!debugMode) return;
+  const el=document.getElementById('cam-debug');
+  if(!el) return;
+  const line=document.createElement('div');
+  line.textContent=new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' '+msg;
+  el.insertBefore(line,el.firstChild);
+  if(el.children.length>20) el.removeChild(el.lastChild);
+}
+
 function onBarcodeRead(rawValue){
   const code=normalizeBarcode(rawValue);
-  if(!isValidBarcode(code)) return;
+  const valid=isValidBarcode(code);
+  debugLog(`raw="${rawValue}" → "${code}" ${valid?'✓':'✗ invalid'}`);
+  if(!valid) return;
   if(code===barcodeCandidate){
     barcodeCandidateCount++;
+    debugLog(`confirm ${barcodeCandidateCount}/${BARCODE_CONFIRM}`);
   } else {
     barcodeCandidate=code;
     barcodeCandidateCount=1;
+    debugLog(`new candidate: ${code}`);
   }
   if(barcodeCandidateCount>=BARCODE_CONFIRM){
     stopBarcodeCamera();
@@ -914,23 +933,28 @@ async function startWithZXing(){
     zxingReader=new ZXing.BrowserMultiFormatReader();
     const video=document.getElementById('bc-video');
     setBarcodeStatus('Barcode ins Bild halten…','ok');
+    debugLog('ZXing gestartet');
     await zxingReader.decodeFromVideoDevice(null, video, (result, err)=>{
       if(result) onBarcodeRead(result.getText());
     });
   }catch(e){
+    debugLog('ZXing Fehler: '+e.message);
     setBarcodeStatus('Kamera konnte nicht gestartet werden.','err');
     showBarcodeCamera(false);
     if(zxingReader){try{zxingReader.reset();}catch(e){} zxingReader=null;}
   }
 }
 
-async function startBarcodeCamera(){
+async function startBarcodeCamera(dbg=false){
+  debugMode=dbg;
   stopBarcodeCamera();
   if(!navigator.mediaDevices?.getUserMedia){
     setBarcodeStatus('Kamera nicht verfügbar.','err');
     return;
   }
   showBarcodeCamera(true);
+  const dbgEl=document.getElementById('cam-debug');
+  if(dbgEl){dbgEl.innerHTML='';dbgEl.classList.toggle('active',debugMode);}
   setBarcodeStatus('Kamera öffnet…');
   if('BarcodeDetector' in window){
     try{
