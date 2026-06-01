@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root{--bg:#F7F5F1;--card:#FFF;--border:#E8E3DB;--text:#1A1614;--muted:#7B766F;--green:#1B4D2E;--glt:#EBF5EE;--orange:#D4520C;--olt:#FEF0E7;--r:12px;--tbh:72px;--hdh:64px;}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -85,7 +86,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);-web
 .seg-btn.active{background:var(--card);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.1);}
 
 /* Inputs */
-.si{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;}
+.si{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;appearance:none;}
 .si:focus{border-color:var(--green);}
 .fg{padding:0 20px 14px;}
 .fl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;display:block;}
@@ -112,13 +113,13 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);-web
 .menge-screen{padding:20px;}
 .mg-name{font-size:18px;font-weight:600;margin-bottom:3px;}
 .mg-meta{font-size:13px;color:var(--muted);margin-bottom:20px;}
-.mg-inp{width:100%;padding:16px;text-align:center;border:2px solid var(--green);border-radius:12px;font-size:28px;font-family:'DM Mono',monospace;font-weight:500;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;}
+.mg-inp{width:100%;padding:16px;text-align:center;border:2px solid var(--green);border-radius:12px;font-size:28px;font-family:'DM Mono',monospace;font-weight:500;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;appearance:none;}
 .mg-preview{text-align:center;font-size:14px;color:var(--muted);margin:10px 0 22px;}
 .mg-back{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--muted);cursor:pointer;margin-bottom:16px;background:none;border:none;font-family:'Outfit',sans-serif;padding:0;}
 
 /* Barcode / manual */
 .bc-row{display:flex;gap:8px;padding:0 20px 10px;}
-.bc-inp{flex:1;padding:11px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;}
+.bc-inp{flex:1;padding:11px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;appearance:none;}
 .bc-inp:focus{border-color:var(--green);}
 .bc-btn{padding:11px 16px;border:none;border-radius:10px;background:var(--green);color:#fff;font-size:14px;font-weight:600;font-family:'Outfit',sans-serif;cursor:pointer;white-space:nowrap;}
 .bc-camera{position:relative;margin:0 20px 12px;border:1.5px solid var(--border);border-radius:16px;overflow:hidden;background:#000;min-height:180px;display:none;}
@@ -163,7 +164,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);-web
 /* Settings */
 .set-row{display:flex;align-items:center;padding:14px 0;border-bottom:1px solid var(--border);}
 .set-lbl{flex:1;font-size:15px;font-weight:500;}
-.set-inp{width:82px;padding:7px 10px;text-align:right;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;}
+.set-inp{width:82px;padding:7px 10px;text-align:right;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;appearance:none;}
 .set-inp:focus{border-color:var(--green);}
 .set-btn{padding:10px 14px;border:none;border-radius:8px;font-size:14px;font-weight:600;font-family:'Outfit',sans-serif;cursor:pointer;}
 
@@ -388,6 +389,11 @@ let barcodeCandidate=null;
 let barcodeCandidateCount=0;
 const BARCODE_CONFIRM=2;
 let debugMode=false;
+let verlaufFrom='';
+let verlaufTo='';
+let verlaufAgg='day';
+let verlaufShow={kcal:true,protein:false,fett:false,kh:false};
+let verlaufTableOpen=false;
 
 function todayISO(){return new Date().toISOString().slice(0,10);}
 
@@ -406,6 +412,7 @@ function load(){
   }
   if(!S.days) S.days={};
   if(!S.settings) S.settings={ziel:2000,bedarf:2135};
+  if(!S.settings.zielProtein) S.settings.zielProtein=Math.round((S.settings.bedarf||2135)*0.25/4);
   if(S.activeTab==='heute') S.activeTab='erfassen';
   S.foods.forEach(f=>{if(f.einheit==='Dose') f.einheit='Packung';});
   S.today=todayISO();
@@ -477,17 +484,26 @@ function renderErfassen(){
   const totals=getTotals(activeDay)||{kcal:0,fett:0,kh:0,protein:0};
   const items=(S.days[activeDay]&&S.days[activeDay].items)||[];
   const histOnly=!S.days[activeDay]?.items?.length && !!S.history[activeDay];
-  const {ziel,bedarf}=S.settings;
-  const over=totals.kcal>ziel;
-  const pKcal=pct(totals.kcal,ziel);
-  const tProt=Math.round(bedarf*0.025);
+  const {ziel,bedarf,zielProtein}=S.settings;
+  const effZiel=S.days[activeDay]?.ziel||ziel;
+  const tProt=zielProtein||Math.round(bedarf*0.25/4);
+  const over=totals.kcal>effZiel;
+  const pKcal=pct(totals.kcal,effZiel);
+  const dayGew=S.days[activeDay]?.gewicht||'';
 
   const datePicker=`
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
     <input type="date" value="${activeDay}" max="${S.today}"
       onchange="setActiveDay(this.value)"
-      style="flex:1;padding:10px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;">
+      style="flex:1;padding:10px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;appearance:none;">
     ${!isToday?`<button onclick="setActiveDay('${S.today}')" style="padding:10px 14px;border:none;border-radius:10px;background:var(--green);color:#fff;font-size:13px;font-weight:600;font-family:'Outfit',sans-serif;cursor:pointer;white-space:nowrap;">Heute</button>`:''}
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 12px;background:var(--card);border-radius:var(--r);border:1px solid var(--border);">
+    <span style="flex:1;font-size:13px;font-weight:600;color:var(--muted);">Gewicht</span>
+    <input type="number" step="0.1" value="${dayGew}" placeholder="—"
+      style="width:72px;padding:5px 8px;text-align:right;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);outline:none;"
+      oninput="saveWeight(this.value)">
+    <span style="font-size:13px;color:var(--muted);font-weight:600;">kg</span>
   </div>`;
 
   let itemsHTML='';
@@ -515,7 +531,7 @@ function renderErfassen(){
   <div class="card">
     <div class="kcal-hero">
       <div class="kcal-num${over?' over':''}">${Math.round(totals.kcal)}</div>
-      <div class="kcal-sub">von ${ziel} kcal · Bedarf ${bedarf} kcal</div>
+      <div class="kcal-sub">von ${effZiel} kcal · Bedarf ${bedarf} kcal${effZiel!==ziel?' <span style="font-size:11px;opacity:.7;">(gespeichertes Ziel)</span>':''}</div>
     </div>
     <div class="prog-wrap">
       <div class="prog-bar"><div class="prog-fill${over?' over':''}" style="width:${pKcal}%"></div></div>
@@ -532,29 +548,49 @@ function renderErfassen(){
 }
 
 // ---- VERLAUF ----
+function toggleVerlaufSeries(key){
+  verlaufShow[key]=!verlaufShow[key];
+  render();
+}
+function toggleVerlaufTable(){
+  verlaufTableOpen=!verlaufTableOpen;
+  render();
+}
+
 function renderVerlauf(){
   const allDays=getAllDays();
-  const sorted=Object.keys(allDays).sort().reverse().slice(0,14);
+  const sortedAll=Object.keys(allDays).sort();
+  const defaultFrom=new Date(new Date(S.today)-60*864e5).toISOString().slice(0,10);
+  const from=verlaufFrom||defaultFrom;
+  const to=verlaufTo||S.today;
+  const filtered=sortedAll.filter(d=>d>=from&&d<=to);
+  const filteredData=filtered.map(d=>({date:d,...allDays[d]}));
   const {ziel}=S.settings;
+  const avg=filteredData.length?Math.round(filteredData.reduce((a,v)=>a+v.kcal,0)/filteredData.length):0;
+  const avgP=filteredData.length?Math.round(filteredData.reduce((a,v)=>a+v.protein,0)/filteredData.length):0;
+  const overDays=filteredData.filter(v=>v.kcal>ziel).length;
 
-  // Stats (last 30 days)
-  const last30=Object.keys(allDays).sort().slice(-30).map(d=>allDays[d]);
-  const avg=last30.length?Math.round(last30.reduce((a,v)=>a+v.kcal,0)/last30.length):0;
-  const avgP=last30.length?Math.round(last30.reduce((a,v)=>a+v.protein,0)/last30.length):0;
-  const overDays=last30.filter(v=>v.kcal>ziel).length;
-
-  const rows=sorted.map(d=>{
-    const v=allDays[d];
+  // Build table rows for full date range (reversed, newest first)
+  const tableRows=filtered.slice().reverse().map(d=>{
+    const v=allDays[d]||{kcal:0,fett:0,kh:0,protein:0};
     const over=v.kcal>ziel;
-    const hasItems=!!(S.days[d]?.items?.length);
+    const wt=S.days[d]?.gewicht;
     return `<div class="hist-row">
       <div class="hist-dot${over?' over':''}"></div>
       <div class="hist-date">${fmtDE(d)}</div>
-      <div class="hist-kcal${over?' over':''}">${Math.round(v.kcal)} kcal</div>
-      <div class="hist-mac" style="flex:1;">${Math.round(v.protein)}g P · ${Math.round(v.kh)}g KH</div>
+      <div class="hist-kcal${over?' over':''}" style="min-width:68px;">${Math.round(v.kcal)} kcal</div>
+      <div class="hist-mac" style="min-width:44px;font-size:11px;">${Math.round(v.fett)}g F</div>
+      <div class="hist-mac" style="min-width:44px;font-size:11px;">${Math.round(v.kh)}g K</div>
+      <div class="hist-mac" style="min-width:44px;font-size:11px;">${Math.round(v.protein)}g P</div>
+      <span onclick="editDayWeight(event,'${d}')" title="Gewicht bearbeiten"
+        style="cursor:pointer;font-size:12px;font-family:'DM Mono',monospace;min-width:48px;text-align:right;padding:2px 4px;border-radius:4px;color:${wt?'rgba(100,149,237,.9)':'var(--border)'};">
+        ${wt?wt+'kg':'—'}
+      </span>
       <button onclick="editDay('${d}')" style="border:none;background:none;cursor:pointer;padding:4px;color:var(--muted);font-size:16px;line-height:1;" title="Bearbeiten">✎</button>
     </div>`;
   }).join('');
+
+  const pillStyle=(key,color)=>`cursor:pointer;padding:5px 11px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid ${color};background:${verlaufShow[key]?color:'transparent'};color:${verlaufShow[key]?'#fff':color};transition:.15s;`;
 
   return `
   <div class="stat3">
@@ -563,11 +599,32 @@ function renderVerlauf(){
     <div class="scard"><div class="scard-v">${overDays}</div><div class="scard-l">Tage über Ziel</div></div>
   </div>
   <div class="card">
-    <div class="sec">Letzter 60 Tage</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+      <div><label class="fl">Von</label><input type="date" class="si" value="${from}" max="${S.today}" onchange="verlaufFrom=this.value;render()"></div>
+      <div><label class="fl">Bis</label><input type="date" class="si" value="${to}" max="${S.today}" onchange="verlaufTo=this.value;render()"></div>
+    </div>
+    <div class="seg" style="margin:0 0 10px;">
+      <button class="seg-btn${verlaufAgg==='day'?' active':''}" onclick="verlaufAgg='day';render()">Tage</button>
+      <button class="seg-btn${verlaufAgg==='week'?' active':''}" onclick="verlaufAgg='week';render()">Ø Woche</button>
+      <button class="seg-btn${verlaufAgg==='month'?' active':''}" onclick="verlaufAgg='month';render()">Ø Monat</button>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <span onclick="toggleVerlaufSeries('kcal')" style="${pillStyle('kcal','rgba(27,77,46,.8)')}">kcal</span>
+      <span onclick="toggleVerlaufSeries('protein')" style="${pillStyle('protein','rgba(212,82,12,.85)')}">Protein</span>
+      <span onclick="toggleVerlaufSeries('kh')" style="${pillStyle('kh','rgba(161,120,43,.85)')}">Kohlenhydrate</span>
+      <span onclick="toggleVerlaufSeries('fett')" style="${pillStyle('fett','rgba(123,118,111,.85)')}">Fett</span>
+    </div>
     <div class="chart-box"><canvas id="kcal-chart"></canvas></div>
   </div>
-  <div class="sec">Letzte 14 Tage</div>
-  <div class="card">${rows||'<div class="empty">Keine Daten</div>'}</div>
+  <div class="sec" style="display:flex;align-items:center;justify-content:space-between;">
+    <span>Einträge im Zeitraum</span>
+    <button onclick="toggleVerlaufTable()" style="border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted);padding:2px 6px;">
+      ${verlaufTableOpen?'▲ Einklappen':'▼ Ausklappen'}
+    </button>
+  </div>
+  ${verlaufTableOpen
+    ? `<div class="card">${tableRows||'<div class="empty">Keine Daten</div>'}</div>`
+    : ''}
   `;
 }
 
@@ -578,6 +635,23 @@ function editDay(d){
   } else {
     openHistoryEdit(d);
   }
+}
+
+function editDayWeight(ev,d){
+  const span=ev.currentTarget;
+  const current=S.days[d]?.gewicht||'';
+  const inp=document.createElement('input');
+  inp.type='number';inp.step='0.1';inp.value=current;inp.placeholder='kg';
+  inp.style='width:58px;font-size:13px;padding:2px 5px;border:1.5px solid rgba(100,149,237,.8);border-radius:4px;font-family:"DM Mono",monospace;outline:none;color:rgba(100,149,237,.9);background:var(--bg,#F7F5F1);';
+  inp.onblur=()=>{
+    if(!S.days[d]) S.days[d]={items:[]};
+    const g=parseFloat(inp.value);
+    if(g>0) S.days[d].gewicht=g; else delete S.days[d].gewicht;
+    save();render();
+  };
+  inp.onkeydown=e=>{if(e.key==='Enter')inp.blur();if(e.key==='Escape')render();};
+  span.replaceWith(inp);
+  inp.focus();inp.select();
 }
 
 function openHistoryEdit(d){
@@ -620,32 +694,104 @@ function getAllDays(){
   return merged;
 }
 
+function isoWeek(iso){
+  const d=new Date(iso+'T12:00:00');
+  const day=(d.getDay()+6)%7;
+  d.setDate(d.getDate()-day+3);
+  const yearStart=new Date(d.getFullYear(),0,1);
+  const wn=Math.ceil(((d-yearStart)/864e5+1)/7);
+  return `${d.getFullYear()}-${String(wn).padStart(2,'0')}`;
+}
+
 function drawChart(){
   const canvas=document.getElementById('kcal-chart');
   if(!canvas) return;
   if(chartInst){chartInst.destroy();chartInst=null;}
   const allDays=getAllDays();
-  const last60=Object.keys(allDays).sort().slice(-60);
-  const labels=last60.map(d=>fmtDE(d));
-  const data=last60.map(d=>Math.round(allDays[d].kcal));
+  const sortedAll=Object.keys(allDays).sort();
+  const defaultFrom=new Date(new Date(S.today)-60*864e5).toISOString().slice(0,10);
+  const from=verlaufFrom||defaultFrom;
+  const to=verlaufTo||S.today;
+  const weights=getAllWeights();
+  const foodDates=sortedAll.filter(d=>d>=from&&d<=to);
+  let labels=[],data=[],proteinData=[],fettData=[],khData=[],weightData=[];
+  if(verlaufAgg==='week'){
+    const filtered=foodDates.map(d=>({date:d,...allDays[d]}));
+    const weeks={};
+    filtered.forEach(({date,kcal,protein,fett,kh})=>{
+      const wk=isoWeek(date);
+      if(!weeks[wk])weeks[wk]={kcal:0,protein:0,fett:0,kh:0,n:0};
+      weeks[wk].kcal+=kcal;weeks[wk].protein+=protein;weeks[wk].fett+=fett;weeks[wk].kh+=kh;weeks[wk].n++;
+    });
+    Object.keys(weeks).sort().forEach(wk=>{
+      const[y,w]=wk.split('-');const b=weeks[wk];const n=b.n;
+      labels.push('KW'+w+' \''+y.slice(2));
+      data.push(Math.round(b.kcal/n));proteinData.push(Math.round(b.protein/n));
+      fettData.push(Math.round(b.fett/n));khData.push(Math.round(b.kh/n));
+    });
+  } else if(verlaufAgg==='month'){
+    const filtered=foodDates.map(d=>({date:d,...allDays[d]}));
+    const months={};
+    filtered.forEach(({date,kcal,protein,fett,kh})=>{
+      const mo=date.slice(0,7);
+      if(!months[mo])months[mo]={kcal:0,protein:0,fett:0,kh:0,n:0};
+      months[mo].kcal+=kcal;months[mo].protein+=protein;months[mo].fett+=fett;months[mo].kh+=kh;months[mo].n++;
+    });
+    const mn=['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+    Object.keys(months).sort().forEach(mo=>{
+      const[y,m]=mo.split('-');const b=months[mo];const n=b.n;
+      labels.push(mn[parseInt(m)-1]+' \''+y.slice(2));
+      data.push(Math.round(b.kcal/n));proteinData.push(Math.round(b.protein/n));
+      fettData.push(Math.round(b.fett/n));khData.push(Math.round(b.kh/n));
+    });
+  } else {
+    const wtDates=Object.keys(weights).filter(d=>d>=from&&d<=to);
+    const unionDates=[...new Set([...foodDates,...wtDates])].sort();
+    labels=unionDates.map(d=>fmtDE(d));
+    data=unionDates.map(d=>allDays[d]?Math.round(allDays[d].kcal):null);
+    proteinData=unionDates.map(d=>allDays[d]?Math.round(allDays[d].protein):null);
+    fettData=unionDates.map(d=>allDays[d]?Math.round(allDays[d].fett):null);
+    khData=unionDates.map(d=>allDays[d]?Math.round(allDays[d].kh):null);
+    weightData=unionDates.map(d=>weights[d]??null);
+  }
   const {ziel,bedarf}=S.settings;
+  const hasWeight=weightData.some(v=>v!==null);
+  // determine if any macro line is shown (→ show y2 axis)
+  const hasMacro=verlaufShow.protein||verlaufShow.fett||verlaufShow.kh;
+  const showY2=hasWeight||hasMacro;
+  const datasets=[];
+  if(verlaufShow.kcal){
+    datasets.push({label:'kcal',data,backgroundColor:data.map(v=>v!=null&&v>ziel?'rgba(212,82,12,.65)':'rgba(27,77,46,.6)'),borderRadius:3,borderSkipped:false,yAxisID:'y'});
+    datasets.push({label:'Ziel',data:data.map(()=>ziel),type:'line',yAxisID:'y',borderColor:'rgba(212,82,12,.6)',borderWidth:1.5,borderDash:[4,4],pointRadius:0,fill:false});
+    datasets.push({label:'Bedarf',data:data.map(()=>bedarf),type:'line',yAxisID:'y',borderColor:'rgba(123,118,111,.4)',borderWidth:1.5,borderDash:[2,4],pointRadius:0,fill:false});
+  }
+  if(verlaufShow.protein)
+    datasets.push({label:'Protein g',data:proteinData,type:'line',yAxisID:'y2',borderColor:'rgba(212,82,12,.85)',backgroundColor:'transparent',borderWidth:2,pointRadius:0,spanGaps:true,fill:false});
+  if(verlaufShow.kh)
+    datasets.push({label:'Kohlenhydrate g',data:khData,type:'line',yAxisID:'y2',borderColor:'rgba(161,120,43,.85)',backgroundColor:'transparent',borderWidth:2,pointRadius:0,spanGaps:true,fill:false});
+  if(verlaufShow.fett)
+    datasets.push({label:'Fett g',data:fettData,type:'line',yAxisID:'y2',borderColor:'rgba(123,118,111,.85)',backgroundColor:'transparent',borderWidth:2,pointRadius:0,spanGaps:true,fill:false});
+  if(hasWeight)
+    datasets.push({label:'Gewicht kg',data:weightData,type:'line',yAxisID:'y2',borderColor:'rgba(100,149,237,.8)',backgroundColor:'transparent',borderWidth:2,pointRadius:weightData.map(v=>v!==null?4:0),pointHoverRadius:weightData.map(v=>v!==null?6:0),pointBackgroundColor:'rgba(100,149,237,.9)',fill:false,spanGaps:true});
   try{
     chartInst=new Chart(canvas,{
       type:'bar',
-      data:{
-        labels,
-        datasets:[
-          {label:'kcal',data,backgroundColor:data.map(v=>v>ziel?'rgba(212,82,12,.65)':'rgba(27,77,46,.6)'),borderRadius:3,borderSkipped:false},
-          {label:'Ziel',data:last60.map(()=>ziel),type:'line',borderColor:'rgba(212,82,12,.6)',borderWidth:1.5,borderDash:[4,4],pointRadius:0,fill:false},
-          {label:'Bedarf',data:last60.map(()=>bedarf),type:'line',borderColor:'rgba(123,118,111,.4)',borderWidth:1.5,borderDash:[2,4],pointRadius:0,fill:false},
-        ]
-      },
+      data:{labels,datasets},
       options:{
         responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} kcal`}}},
+        plugins:{
+          legend:{display:false},
+          tooltip:{callbacks:{label:ctx=>{
+            const l=ctx.dataset.label;
+            if(l==='Gewicht kg') return `${ctx.raw} kg`;
+            if(l&&l.endsWith(' g')) return `${ctx.raw} g`;
+            return `${ctx.raw} kcal`;
+          }}}
+        },
         scales:{
           x:{ticks:{font:{size:9},maxRotation:0,maxTicksLimit:8,color:'#7B766F'},grid:{display:false}},
-          y:{ticks:{font:{size:9},color:'#7B766F'},grid:{color:'rgba(0,0,0,.05)'}}
+          y:{display:verlaufShow.kcal,ticks:{font:{size:9},color:'#7B766F'},grid:{color:'rgba(0,0,0,.05)'}},
+          y2:{display:showY2,position:'right',ticks:{font:{size:9},color:'rgba(100,149,237,.9)'},grid:{display:false}}
         }
       }
     });
@@ -680,6 +826,7 @@ function confirmDelFood(id){if(confirm('Lebensmittel löschen?')){S.foods=S.food
 
 // ---- EINSTELLUNGEN ----
 function renderCfg(){
+  const suggestProt=Math.round((S.settings.bedarf||2135)*0.25/4);
   const cats=getCategories();
   const catRows=cats.map(c=>{
     const count=S.foods.filter(f=>f.kat===c).length;
@@ -693,7 +840,12 @@ function renderCfg(){
   <div class="sec">Ziele</div>
   <div class="card">
     <div class="set-row"><span class="set-lbl">Kalorienziel (kcal)</span><input class="set-inp" type="number" value="${S.settings.ziel}" onchange="S.settings.ziel=+this.value;save()"></div>
-    <div class="set-row" style="border:none;"><span class="set-lbl">Tagesbedarf TDEE (kcal)</span><input class="set-inp" type="number" value="${S.settings.bedarf}" onchange="S.settings.bedarf=+this.value;save()"></div>
+    <div class="set-row"><span class="set-lbl">Tagesbedarf TDEE (kcal)</span><input class="set-inp" type="number" value="${S.settings.bedarf}" onchange="S.settings.bedarf=+this.value;save()"></div>
+    <div class="set-row" style="border:none;gap:6px;">
+      <span class="set-lbl">Proteinziel (g)</span>
+      <button class="set-btn" style="background:var(--bg);color:var(--muted);font-size:12px;padding:5px 8px;font-family:'Outfit',sans-serif;border:1px solid var(--border);" onclick="document.getElementById('cfg-prot').value=${suggestProt};S.settings.zielProtein=${suggestProt};save()">≈${suggestProt}g</button>
+      <input class="set-inp" id="cfg-prot" type="number" value="${S.settings.zielProtein||suggestProt}" onchange="S.settings.zielProtein=+this.value;save()">
+    </div>
   </div>
   <div class="sec" style="margin-top:8px;">Kategorien</div>
   <div class="card">
@@ -705,7 +857,10 @@ function renderCfg(){
   </div>
   <div class="sec" style="margin-top:8px;">Daten</div>
   <div class="card">
-    <div class="set-row"><span class="set-lbl">Daten exportieren (JSON)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="exportData()">Export</button></div>
+    <div class="set-row"><span class="set-lbl">Exportieren (JSON)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="exportData()">Export</button></div>
+    <div class="set-row"><span class="set-lbl">Importieren (JSON)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="importData()">Import</button></div>
+    <div class="set-row"><span class="set-lbl">Verlauf (CSV)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="exportCSV()">CSV</button></div>
+    <div class="set-row"><span class="set-lbl">Verlauf (PDF)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="exportPDF()">PDF</button></div>
     <div class="set-row" style="border:none;"><span class="set-lbl">Alle geloggten Tage löschen</span><button class="set-btn" style="background:var(--olt);color:var(--orange);font-family:'Outfit',sans-serif;" onclick="clearLog()">Löschen</button></div>
   </div>
   <div class="sec" style="margin-top:8px;">Info</div>
@@ -748,6 +903,79 @@ function addKat(){
   if(!S.customKats.includes(name)) S.customKats.push(name);
   if(inp) inp.value='';
   save();render();
+}
+
+function importData(){
+  const inp=document.createElement('input');
+  inp.type='file';inp.accept='.json,application/json';
+  inp.onchange=async e=>{
+    const file=e.target.files[0];
+    if(!file) return;
+    try{
+      const text=await file.text();
+      const data=JSON.parse(text);
+      if(data.foods&&Array.isArray(data.foods)){
+        data.foods.forEach(f=>{if(!S.foods.find(x=>x.id===f.id))S.foods.push(f);});
+      }
+      if(data.days&&typeof data.days==='object') Object.assign(S.days,data.days);
+      if(data.settings&&typeof data.settings==='object') Object.assign(S.settings,data.settings);
+      save();render();
+      alert('Import erfolgreich!');
+    }catch(err){alert('Import fehlgeschlagen: Ungültige JSON-Datei.');}
+  };
+  inp.click();
+}
+
+function exportCSV(){
+  const allDays=getAllDays();
+  const sorted=Object.keys(allDays).sort();
+  let csv='Datum,kcal,Fett (g),Kohlenhydrate (g),Protein (g)\n';
+  sorted.forEach(d=>{const v=allDays[d];csv+=`${d},${r1(v.kcal)},${r1(v.fett)},${r1(v.kh)},${r1(v.protein)}\n`;});
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='nutrilog_verlauf.csv';a.click();URL.revokeObjectURL(url);
+}
+
+function exportPDF(){
+  const jsPDF=window.jspdf?.jsPDF;
+  if(!jsPDF){alert('jsPDF nicht verfügbar.');return;}
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  let y=20;
+  doc.setFont('helvetica','bold');doc.setFontSize(18);
+  doc.text('NutriLog Verlauf',20,y);y+=8;
+  doc.setFont('helvetica','normal');doc.setFontSize(10);
+  const allDays=getAllDays();
+  const sortedAll=Object.keys(allDays).sort();
+  const defaultFrom=new Date(new Date(S.today)-60*864e5).toISOString().slice(0,10);
+  const from=verlaufFrom||defaultFrom;
+  const to=verlaufTo||S.today;
+  doc.text(`Zeitraum: ${from} – ${to}  |  Erstellt: ${new Date().toLocaleDateString('de-CH')}`,20,y);y+=8;
+  const chartCanvas=document.getElementById('kcal-chart');
+  if(chartCanvas&&chartInst){
+    try{doc.addImage(chartCanvas.toDataURL('image/png'),'PNG',20,y,170,70);y+=75;}catch(e){}
+  }
+  const filtered=sortedAll.filter(d=>d>=from&&d<=to).map(d=>allDays[d]);
+  if(filtered.length){
+    const avg=Math.round(filtered.reduce((a,v)=>a+v.kcal,0)/filtered.length);
+    const avgP=Math.round(filtered.reduce((a,v)=>a+v.protein,0)/filtered.length);
+    const avgF=Math.round(filtered.reduce((a,v)=>a+v.fett,0)/filtered.length);
+    const avgC=Math.round(filtered.reduce((a,v)=>a+v.kh,0)/filtered.length);
+    doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text('Durchschnittswerte',20,y);y+=5;
+    doc.setFont('helvetica','normal');doc.setFontSize(10);
+    doc.text(`Ø ${avg} kcal  |  Protein: ${avgP}g  |  Fett: ${avgF}g  |  KH: ${avgC}g  |  ${filtered.length} Tage`,20,y);y+=8;
+  }
+  doc.setFont('helvetica','bold');doc.setFontSize(9);
+  doc.text('Datum',20,y);doc.text('kcal',82,y);doc.text('Fett g',105,y);doc.text('KH g',128,y);doc.text('Protein g',151,y);
+  y+=2;doc.setDrawColor(180);doc.line(20,y,190,y);y+=3;
+  doc.setFont('helvetica','normal');
+  sortedAll.filter(d=>d>=from&&d<=to).reverse().forEach(d=>{
+    if(y>280){doc.addPage();y=20;}
+    const v=allDays[d];
+    doc.text(fmtDELong(d),20,y);doc.text(String(Math.round(v.kcal)),82,y);
+    doc.text(String(Math.round(v.fett)),105,y);doc.text(String(Math.round(v.kh)),128,y);
+    doc.text(String(Math.round(v.protein)),151,y);y+=4.5;
+  });
+  doc.save('nutrilog_verlauf.pdf');
 }
 
 function exportData(){
@@ -858,10 +1086,13 @@ function addFromDB(){
 
 // ---- Barcode / Manual ----
 function renderBCForm(prefill={}){
+  const ein=prefill.ein||'Stück';
+  const isVol=(ein==='Gramm'||ein==='Milliliter');
+  const gwLbl=ein==='Packung'?'g/Packung':'g/Stück';
   return `
   <div style="padding:4px 20px 8px;font-size:13px;color:var(--muted);">EAN-Barcode eingeben → Nährwerte werden automatisch ausgefüllt.</div>
   <div class="bc-row">
-    <input id="bc-inp" class="bc-inp" type="text" placeholder="EAN-Code (z.B. 7611100000000)" inputmode="numeric">
+    <input id="bc-inp" class="bc-inp" type="text" placeholder="EAN-Code (z.B. 7611100000000)" inputmode="numeric" onkeydown="if(event.key==='Enter')lookupBarcode()">
     <button class="bc-btn" onclick="lookupBarcode()">Suchen</button>
   </div>
   <div class="bc-row">
@@ -884,20 +1115,24 @@ function renderBCForm(prefill={}){
       <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Protein g</div><input class="si" id="bc-p" type="number" value="${prefill.p||''}" inputmode="decimal"></div>
     </div>
   </div>
-  <div class="fg grid2">
-    <div><label class="fl" id="bc-gew-lbl">Gramm pro Stück</label><input class="si" id="bc-gew" type="number" value="${prefill.gew||100}" inputmode="decimal"></div>
-    <div><label class="fl">Einheit</label>
+  <div class="fg" style="display:flex;gap:10px;align-items:end;">
+    <div style="width:72px;flex-shrink:0;">
+      <label class="fl" id="bc-anzahl-lbl">${isVol?(ein==='Gramm'?'Gramm':'ml'):'Anzahl'}</label>
+      <input class="si" id="bc-anzahl" type="number" value="${isVol?(prefill.gew||100):(prefill.anzahl||1)}" min="0.5" step="${isVol?'10':'0.5'}" inputmode="decimal">
+    </div>
+    <div style="flex:1;">
+      <label class="fl">Einheit</label>
       <select class="si" id="bc-ein" onchange="onEinheitChange()" style="-webkit-appearance:auto">
-        <option value="Stück"${(prefill.ein||'Stück')==='Stück'?' selected':''}>Stück</option>
-        <option value="Gramm"${prefill.ein==='Gramm'?' selected':''}>Gramm</option>
-        <option value="Milliliter"${prefill.ein==='Milliliter'?' selected':''}>Milliliter</option>
-        <option value="Packung"${(prefill.ein==='Packung'||prefill.ein==='Dose')?' selected':''}>Packung</option>
+        <option value="Stück"${ein==='Stück'?' selected':''}>Stück</option>
+        <option value="Gramm"${ein==='Gramm'?' selected':''}>Gramm</option>
+        <option value="Milliliter"${ein==='Milliliter'?' selected':''}>Milliliter</option>
+        <option value="Packung"${(ein==='Packung'||ein==='Dose')?' selected':''}>Packung</option>
       </select>
     </div>
-  </div>
-  <div class="fg" id="bc-anzahl-row" style="${(['Gramm','Milliliter'].includes(prefill.ein||'Stück'))?'display:none':''}">
-    <label class="fl">Anzahl</label>
-    <input class="si" id="bc-anzahl" type="number" value="${prefill.anzahl||1}" min="0.5" step="0.5" inputmode="decimal">
+    <div id="bc-gew-col" style="width:80px;flex-shrink:0;${isVol?'display:none;':''}">
+      <label class="fl" id="bc-gew-lbl">${gwLbl}</label>
+      <input class="si" id="bc-gew" type="number" value="${prefill.gew||100}" inputmode="decimal" placeholder="g">
+    </div>
   </div>
   <button class="btn-p" onclick="addManual(false)">Einmalig hinzufügen</button>
   <button class="btn-s" onclick="addManual(true)">+ In Datenbank speichern</button>
@@ -906,16 +1141,26 @@ function renderBCForm(prefill={}){
 
 function onEinheitChange(){
   const ein=document.getElementById('bc-ein')?.value;
-  const lbl=document.getElementById('bc-gew-lbl');
-  const gewInp=document.getElementById('bc-gew');
-  const anzahlRow=document.getElementById('bc-anzahl-row');
-  if(!lbl||!gewInp) return;
+  const gwLbl=document.getElementById('bc-gew-lbl');
+  const gewCol=document.getElementById('bc-gew-col');
+  const anzahlInp=document.getElementById('bc-anzahl');
+  const anzahlLbl=document.getElementById('bc-anzahl-lbl');
+  if(!gewCol) return;
   const isVol=(ein==='Gramm'||ein==='Milliliter');
-  if(ein==='Gramm'){lbl.textContent='Wie viel Gramm?';gewInp.placeholder='z.B. 150';}
-  else if(ein==='Milliliter'){lbl.textContent='Wie viel ml?';gewInp.placeholder='z.B. 250';}
-  else if(ein==='Packung'){lbl.textContent='Gramm pro Packung';gewInp.placeholder='z.B. 400';}
-  else{lbl.textContent='Gramm pro Stück';gewInp.placeholder='z.B. 150';}
-  if(anzahlRow) anzahlRow.style.display=isVol?'none':'';
+  gewCol.style.display=isVol?'none':'';
+  if(gwLbl) gwLbl.textContent=ein==='Packung'?'g/Packung':'g/Stück';
+  if(anzahlLbl) anzahlLbl.textContent=isVol?(ein==='Gramm'?'Gramm':'ml'):'Anzahl';
+  if(anzahlInp){
+    if(isVol){
+      if(parseFloat(anzahlInp.value)<10) anzahlInp.value='100';
+      anzahlInp.step='10';
+      anzahlInp.placeholder=ein==='Gramm'?'z.B. 150':'z.B. 250';
+    } else {
+      if(parseFloat(anzahlInp.value)>10) anzahlInp.value='1';
+      anzahlInp.step='0.5';
+      anzahlInp.placeholder='';
+    }
+  }
 }
 
 function setBarcodeStatus(msg, level=''){
@@ -1073,7 +1318,7 @@ async function lookupBarcode(){
       st.className='status ok';st.textContent=`✓ Gefunden: ${nm||'Unbekannt'}`;
       // refill form
       const body=document.getElementById('add-body');
-      body.innerHTML=`<div class="bc-row"><input id="bc-inp" class="bc-inp" type="text" value="${ean}" inputmode="numeric"><button class="bc-btn" onclick="lookupBarcode()">Suchen</button></div>
+      body.innerHTML=`<div class="bc-row"><input id="bc-inp" class="bc-inp" type="text" value="${ean}" inputmode="numeric" onkeydown="if(event.key==='Enter')lookupBarcode()"><button class="bc-btn" onclick="lookupBarcode()">Suchen</button></div>
       <div class="bc-row"><button class="bc-btn" style="flex:1;background:#3B5F3F;" onclick="startBarcodeCamera()">Kamera scannen</button></div>
       <div class="status ok" id="bc-status">✓ Gefunden: ${nm||'Produkt'}</div>
       <div class="bc-camera" id="bc-camera" hidden>
@@ -1088,9 +1333,13 @@ async function lookupBarcode(){
         <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">KH g</div><input class="si" id="bc-c" type="number" value="${r1(nu.carbohydrates_100g||0)}" inputmode="decimal"></div>
         <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Protein g</div><input class="si" id="bc-p" type="number" value="${r1(nu.proteins_100g||0)}" inputmode="decimal"></div>
       </div></div>
-      <div class="fg grid2">
-        <div><label class="fl" id="bc-gew-lbl">Gramm pro Stück</label><input class="si" id="bc-gew" type="number" value="${qty}" inputmode="decimal"></div>
-        <div><label class="fl">Einheit</label>
+      <div class="fg" style="display:flex;gap:10px;align-items:end;">
+        <div style="width:72px;flex-shrink:0;">
+          <label class="fl" id="bc-anzahl-lbl">Anzahl</label>
+          <input class="si" id="bc-anzahl" type="number" value="1" min="0.5" step="0.5" inputmode="decimal">
+        </div>
+        <div style="flex:1;">
+          <label class="fl">Einheit</label>
           <select class="si" id="bc-ein" onchange="onEinheitChange()" style="-webkit-appearance:auto">
             <option value="Stück" selected>Stück</option>
             <option value="Gramm">Gramm</option>
@@ -1098,10 +1347,10 @@ async function lookupBarcode(){
             <option value="Packung">Packung</option>
           </select>
         </div>
-      </div>
-      <div class="fg" id="bc-anzahl-row">
-        <label class="fl">Anzahl</label>
-        <input class="si" id="bc-anzahl" type="number" value="1" min="0.5" step="0.5" inputmode="decimal">
+        <div id="bc-gew-col" style="width:80px;flex-shrink:0;">
+          <label class="fl" id="bc-gew-lbl">g/Stück</label>
+          <input class="si" id="bc-gew" type="number" value="${qty}" inputmode="decimal" placeholder="g">
+        </div>
       </div>
       <button class="btn-p" onclick="addManual(false)">Einmalig hinzufügen</button>
       <button class="btn-s" onclick="addManual(true)">+ In Datenbank speichern</button>`;
@@ -1120,26 +1369,46 @@ function addManual(saveDB){
   const f=parseFloat(document.getElementById('bc-f')?.value)||0;
   const c=parseFloat(document.getElementById('bc-c')?.value)||0;
   const p=parseFloat(document.getElementById('bc-p')?.value)||0;
-  const gew=parseFloat(document.getElementById('bc-gew')?.value)||100;
   const ein=document.getElementById('bc-ein')?.value||'Stück';
   const isVol=(ein==='Gramm'||ein==='Milliliter');
-  const anzahl=isVol?1:(parseFloat(document.getElementById('bc-anzahl')?.value)||1);
-  const mult=gew/100;
-  const entryMenge=isVol?gew:anzahl;
-  const dbGew=isVol?1:gew;
-  const entry={name,menge:entryMenge,einheit:ein,kcal:r1(k*mult*anzahl),fett:r1(f*mult*anzahl),kh:r1(c*mult*anzahl),protein:r1(p*mult*anzahl)};
+  const anzahl=parseFloat(document.getElementById('bc-anzahl')?.value)||(isVol?100:1);
+  const gew=isVol?1:(parseFloat(document.getElementById('bc-gew')?.value)||100);
+  let kcal,fett,kh,protein;
+  if(isVol){
+    const mult=anzahl/100;
+    kcal=r1(k*mult);fett=r1(f*mult);kh=r1(c*mult);protein=r1(p*mult);
+  } else {
+    const mult=(gew*anzahl)/100;
+    kcal=r1(k*mult);fett=r1(f*mult);kh=r1(c*mult);protein=r1(p*mult);
+  }
+  const entry={name,menge:r1(anzahl),einheit:ein,kcal,fett,kh,protein};
   if(saveDB){
-    S.foods.push({id:uid(),kat:'Sonstiges',name,quelle:'',einheit:ein,gew:dbGew,k,f,c,p});
+    S.foods.push({id:uid(),kat:'Sonstiges',name,quelle:'',einheit:ein,gew,k,f,c,p});
   }
   addToDay(entry);
   closeAdd();
 }
 
 function addToDay(entry){
-  if(!S.days[activeDay]) S.days[activeDay]={items:[]};
+  if(!S.days[activeDay]) S.days[activeDay]={items:[],ziel:S.settings.ziel};
+  if(!S.days[activeDay].ziel) S.days[activeDay].ziel=S.settings.ziel;
   S.days[activeDay].items.push(entry);
   save();
   if(S.activeTab==='erfassen') render();
+}
+
+function saveWeight(val){
+  if(!S.days[activeDay]) S.days[activeDay]={items:[]};
+  const g=parseFloat(val);
+  if(g>0) S.days[activeDay].gewicht=g;
+  else delete S.days[activeDay].gewicht;
+  save();
+}
+
+function getAllWeights(){
+  const r={};
+  Object.entries(S.days).forEach(([d,day])=>{if(day.gewicht) r[d]=day.gewicht;});
+  return r;
 }
 
 function delItem(date,idx){
