@@ -377,7 +377,7 @@ let S = {
   today: todayISO(),
 };
 let activeDay=todayISO();
-let addMode='db', addFood=null;
+let addMode='db', addFood=null, addListKat='Alle', addSearch='';
 let dbKat='Alle', dbSearch='';
 let chartInst=null;
 let editFood=null;
@@ -988,6 +988,7 @@ function clearLog(){if(confirm('Alle geloggten Tage wirklich löschen?')){S.days
 // ===================== ADD ENTRY SHEET =====================
 function openAdd(){
   addFood=null;
+  addSearch='';addListKat='Alle';
   addMode=S.activeTab==='db'?'db':'db';
   document.getElementById('add-ov').classList.add('open');
   document.getElementById('add-sh').classList.add('open');
@@ -1007,7 +1008,7 @@ function closeAdd(){
   stopBarcodeCamera();
 }
 function switchAddMode(m){
-  addMode=m;
+  addMode=m;addSearch='';addListKat='Alle';
   document.getElementById('seg-db').classList.toggle('active',m==='db');
   document.getElementById('seg-bc').classList.toggle('active',m==='bc');
   stopBarcodeCamera();
@@ -1020,10 +1021,10 @@ function renderAddBody(){
   else body.innerHTML=renderBCForm();
 }
 
-function renderDBList(){
-  const q=document.getElementById('db-search-add')?.value||'';
-  const foods=S.foods.filter(f=>!q||f.name.toLowerCase().includes(q.toLowerCase()));
-  const items=foods.map(f=>{
+function buildFoodItems(){
+  const q=addSearch;
+  const foods=S.foods.filter(f=>(addListKat==='Alle'||f.kat===addListKat)&&(!q||f.name.toLowerCase().includes(q.toLowerCase())));
+  return foods.map(f=>{
     const u=perUnit(f);
     return `<div class="food-li" onclick="selectFood('${f.id}')">
       <div class="fl-info">
@@ -1033,9 +1034,20 @@ function renderDBList(){
       <span class="fl-kcal">${Math.round(u.kcal)} kcal</span>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C8C2BA" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
     </div>`;
-  }).join('');
-  return `<div class="sw"><input id="db-search-add" class="si" type="search" placeholder="Lebensmittel suchen…" oninput="renderAddBody()" autofocus></div>
-  <div>${items||'<div class="empty">Keine Treffer</div>'}</div>`;
+  }).join('')||'<div class="empty">Keine Treffer</div>';
+}
+function updateFoodListAdd(){
+  const el=document.getElementById('food-list-add');
+  if(el) el.innerHTML=buildFoodItems();
+}
+function setAddKat(k){addListKat=k;renderAddBody();}
+
+function renderDBList(){
+  const cats=['Alle',...new Set(S.foods.map(f=>f.kat))].sort((a,b)=>a==='Alle'?-1:b==='Alle'?1:a.localeCompare(b,'de'));
+  const chips=cats.map(c=>`<button class="kchip${addListKat===c?' active':''}" onclick="setAddKat('${c}')">${c}</button>`).join('');
+  return `<div class="kat-bar">${chips}</div>
+  <div class="sw"><input id="db-search-add" class="si" type="search" placeholder="Lebensmittel suchen…" value="${addSearch}" oninput="addSearch=this.value;updateFoodListAdd()" autofocus></div>
+  <div id="food-list-add">${buildFoodItems()}</div>`;
 }
 
 function selectFood(id){
