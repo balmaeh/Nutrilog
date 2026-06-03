@@ -115,6 +115,12 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);-web
 .mg-meta{font-size:13px;color:var(--muted);margin-bottom:20px;}
 .mg-inp{width:100%;padding:16px;text-align:center;border:2px solid var(--green);border-radius:12px;font-size:28px;font-family:'DM Mono',monospace;font-weight:500;background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;appearance:none;}
 .mg-preview{text-align:center;font-size:14px;color:var(--muted);margin:10px 0 22px;}
+.mg-live{margin:12px 0 22px;}
+.mg-live-kcal{text-align:center;font-size:34px;font-weight:700;font-family:'DM Mono',monospace;color:var(--green);}
+.mg-live-macros{display:flex;justify-content:center;gap:22px;margin-top:8px;}
+.mg-live-mac{display:flex;flex-direction:column;align-items:center;gap:2px;}
+.mg-live-mac .mv{font-size:15px;font-weight:600;font-family:'DM Mono',monospace;color:var(--text);}
+.mg-live-mac .ml{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
 .mg-back{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--muted);cursor:pointer;margin-bottom:16px;background:none;border:none;font-family:'Outfit',sans-serif;padding:0;}
 
 /* Barcode / manual */
@@ -566,8 +572,10 @@ function renderVerlauf(){
   const filtered=sortedAll.filter(d=>d>=from&&d<=to);
   const filteredData=filtered.map(d=>({date:d,...allDays[d]}));
   const {ziel}=S.settings;
-  const avg=filteredData.length?Math.round(filteredData.reduce((a,v)=>a+v.kcal,0)/filteredData.length):0;
-  const avgP=filteredData.length?Math.round(filteredData.reduce((a,v)=>a+v.protein,0)/filteredData.length):0;
+  const kcalDays=filteredData.filter(v=>v.kcal>0);
+  const proteinDays=filteredData.filter(v=>v.protein>0);
+  const avg=kcalDays.length?Math.round(kcalDays.reduce((a,v)=>a+v.kcal,0)/kcalDays.length):0;
+  const avgP=proteinDays.length?Math.round(proteinDays.reduce((a,v)=>a+v.protein,0)/proteinDays.length):0;
   const overDays=filteredData.filter(v=>v.kcal>ziel).length;
 
   // Build table rows for full date range (reversed, newest first)
@@ -720,29 +728,39 @@ function drawChart(){
     const weeks={};
     filtered.forEach(({date,kcal,protein,fett,kh})=>{
       const wk=isoWeek(date);
-      if(!weeks[wk])weeks[wk]={kcal:0,protein:0,fett:0,kh:0,n:0};
-      weeks[wk].kcal+=kcal;weeks[wk].protein+=protein;weeks[wk].fett+=fett;weeks[wk].kh+=kh;weeks[wk].n++;
+      if(!weeks[wk])weeks[wk]={kcal:0,protein:0,fett:0,kh:0,nKcal:0,nProtein:0,nFett:0,nKh:0};
+      if(kcal>0){weeks[wk].kcal+=kcal;weeks[wk].nKcal++;}
+      if(protein>0){weeks[wk].protein+=protein;weeks[wk].nProtein++;}
+      if(fett>0){weeks[wk].fett+=fett;weeks[wk].nFett++;}
+      if(kh>0){weeks[wk].kh+=kh;weeks[wk].nKh++;}
     });
     Object.keys(weeks).sort().forEach(wk=>{
-      const[y,w]=wk.split('-');const b=weeks[wk];const n=b.n;
+      const[y,w]=wk.split('-');const b=weeks[wk];
       labels.push('KW'+w+' \''+y.slice(2));
-      data.push(Math.round(b.kcal/n));proteinData.push(Math.round(b.protein/n));
-      fettData.push(Math.round(b.fett/n));khData.push(Math.round(b.kh/n));
+      data.push(b.nKcal?Math.round(b.kcal/b.nKcal):null);
+      proteinData.push(b.nProtein?Math.round(b.protein/b.nProtein):null);
+      fettData.push(b.nFett?Math.round(b.fett/b.nFett):null);
+      khData.push(b.nKh?Math.round(b.kh/b.nKh):null);
     });
   } else if(verlaufAgg==='month'){
     const filtered=foodDates.map(d=>({date:d,...allDays[d]}));
     const months={};
     filtered.forEach(({date,kcal,protein,fett,kh})=>{
       const mo=date.slice(0,7);
-      if(!months[mo])months[mo]={kcal:0,protein:0,fett:0,kh:0,n:0};
-      months[mo].kcal+=kcal;months[mo].protein+=protein;months[mo].fett+=fett;months[mo].kh+=kh;months[mo].n++;
+      if(!months[mo])months[mo]={kcal:0,protein:0,fett:0,kh:0,nKcal:0,nProtein:0,nFett:0,nKh:0};
+      if(kcal>0){months[mo].kcal+=kcal;months[mo].nKcal++;}
+      if(protein>0){months[mo].protein+=protein;months[mo].nProtein++;}
+      if(fett>0){months[mo].fett+=fett;months[mo].nFett++;}
+      if(kh>0){months[mo].kh+=kh;months[mo].nKh++;}
     });
     const mn=['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
     Object.keys(months).sort().forEach(mo=>{
-      const[y,m]=mo.split('-');const b=months[mo];const n=b.n;
+      const[y,m]=mo.split('-');const b=months[mo];
       labels.push(mn[parseInt(m)-1]+' \''+y.slice(2));
-      data.push(Math.round(b.kcal/n));proteinData.push(Math.round(b.protein/n));
-      fettData.push(Math.round(b.fett/n));khData.push(Math.round(b.kh/n));
+      data.push(b.nKcal?Math.round(b.kcal/b.nKcal):null);
+      proteinData.push(b.nProtein?Math.round(b.protein/b.nProtein):null);
+      fettData.push(b.nFett?Math.round(b.fett/b.nFett):null);
+      khData.push(b.nKh?Math.round(b.kh/b.nKh):null);
     });
   } else {
     const wtDates=Object.keys(weights).filter(d=>d>=from&&d<=to);
@@ -1013,12 +1031,13 @@ function switchAddMode(m){
   document.getElementById('seg-bc').classList.toggle('active',m==='bc');
   stopBarcodeCamera();
   renderAddBody();
+  if(m==='bc') setTimeout(()=>startBarcodeCamera(false),100);
 }
 function renderAddBody(){
   const body=document.getElementById('add-body');
   if(addFood){renderMengeScreen();return;}
   if(addMode==='db') body.innerHTML=renderDBList();
-  else body.innerHTML=renderBCForm();
+  else{body.innerHTML=renderBCForm();setTimeout(()=>updateBCPreview(),50);}
 }
 
 function buildFoodItems(){
@@ -1065,9 +1084,9 @@ function renderMengeScreen(){
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Zurück
     </button>
     <div class="mg-name">${f.name}</div>
-    <div class="mg-meta">${f.kat} · ${Math.round(u.kcal)} kcal pro ${f.einheit}${f.gew>1?' ('+f.gew+'g)':''}</div>
+    <div class="mg-meta">${f.kat}${f.gew>1?' · '+f.gew+'g/'+f.einheit:''}</div>
     <input class="mg-inp" id="menge-inp" type="number" min="0.5" step="${f.gew<=1?10:1}" value="1" oninput="updateMengePreview()" inputmode="decimal">
-    <div class="mg-preview" id="menge-preview"></div>
+    <div class="mg-live" id="menge-preview"></div>
   </div>`;
   setTimeout(()=>{
     document.getElementById('menge-inp')?.focus();
@@ -1086,7 +1105,12 @@ function updateMengePreview(){
   if(!inp||!prev||!addFood) return;
   const menge=parseFloat(inp.value)||1;
   const n=calcNutr(addFood,menge);
-  prev.textContent=`${Math.round(n.kcal)} kcal · ${r1(n.fett)}g F · ${r1(n.kh)}g KH · ${r1(n.protein)}g P`;
+  prev.innerHTML=`<div class="mg-live-kcal">${Math.round(n.kcal)} kcal</div>
+    <div class="mg-live-macros">
+      <div class="mg-live-mac"><span class="mv">${r1(n.protein)}g</span><span class="ml">Protein</span></div>
+      <div class="mg-live-mac"><span class="mv">${r1(n.fett)}g</span><span class="ml">Fett</span></div>
+      <div class="mg-live-mac"><span class="mv">${r1(n.kh)}g</span><span class="ml">KH</span></div>
+    </div>`;
 }
 
 function addFromDB(){
@@ -1121,16 +1145,16 @@ function renderBCForm(prefill={}){
   <div class="fg"><label class="fl">Name</label><input class="si" id="bc-name" value="${prefill.name||''}" placeholder="z.B. Quark Nature"></div>
   <div class="fg"><label class="fl">Nährwerte pro 100g</label>
     <div class="grid4">
-      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">kcal</div><input class="si" id="bc-k" type="number" value="${prefill.k||''}" inputmode="decimal"></div>
-      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Fett g</div><input class="si" id="bc-f" type="number" value="${prefill.f||''}" inputmode="decimal"></div>
-      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">KH g</div><input class="si" id="bc-c" type="number" value="${prefill.c||''}" inputmode="decimal"></div>
-      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Protein g</div><input class="si" id="bc-p" type="number" value="${prefill.p||''}" inputmode="decimal"></div>
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">kcal</div><input class="si" id="bc-k" type="number" value="${prefill.k||''}" inputmode="decimal" oninput="updateBCPreview()"></div>
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Fett g</div><input class="si" id="bc-f" type="number" value="${prefill.f||''}" inputmode="decimal" oninput="updateBCPreview()"></div>
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">KH g</div><input class="si" id="bc-c" type="number" value="${prefill.c||''}" inputmode="decimal" oninput="updateBCPreview()"></div>
+      <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Protein g</div><input class="si" id="bc-p" type="number" value="${prefill.p||''}" inputmode="decimal" oninput="updateBCPreview()"></div>
     </div>
   </div>
   <div class="fg" style="display:flex;gap:10px;align-items:end;">
     <div style="width:72px;flex-shrink:0;">
       <label class="fl" id="bc-anzahl-lbl">${isVol?(ein==='Gramm'?'Gramm':'ml'):'Anzahl'}</label>
-      <input class="si" id="bc-anzahl" type="number" value="${isVol?(prefill.gew||100):(prefill.anzahl||1)}" min="0.5" step="${isVol?'10':'0.5'}" inputmode="decimal">
+      <input class="si" id="bc-anzahl" type="number" value="${isVol?(prefill.gew||100):(prefill.anzahl||1)}" min="0.5" step="${isVol?'10':'0.5'}" inputmode="decimal" oninput="updateBCPreview()">
     </div>
     <div style="flex:1;">
       <label class="fl">Einheit</label>
@@ -1143,9 +1167,10 @@ function renderBCForm(prefill={}){
     </div>
     <div id="bc-gew-col" style="width:80px;flex-shrink:0;${isVol?'display:none;':''}">
       <label class="fl" id="bc-gew-lbl">${gwLbl}</label>
-      <input class="si" id="bc-gew" type="number" value="${prefill.gew||100}" inputmode="decimal" placeholder="g">
+      <input class="si" id="bc-gew" type="number" value="${prefill.gew||100}" inputmode="decimal" placeholder="g" oninput="updateBCPreview()">
     </div>
   </div>
+  <div class="mg-live" id="bc-preview"></div>
   <button class="btn-p" onclick="addManual(false)">Einmalig hinzufügen</button>
   <button class="btn-s" onclick="addManual(true)">+ In Datenbank speichern</button>
   `;
@@ -1173,6 +1198,27 @@ function onEinheitChange(){
       anzahlInp.placeholder='';
     }
   }
+  updateBCPreview();
+}
+
+function updateBCPreview(){
+  const k=parseFloat(document.getElementById('bc-k')?.value)||0;
+  const f=parseFloat(document.getElementById('bc-f')?.value)||0;
+  const c=parseFloat(document.getElementById('bc-c')?.value)||0;
+  const p=parseFloat(document.getElementById('bc-p')?.value)||0;
+  const ein=document.getElementById('bc-ein')?.value||'Stück';
+  const isVol=(ein==='Gramm'||ein==='Milliliter');
+  const anzahl=parseFloat(document.getElementById('bc-anzahl')?.value)||(isVol?100:1);
+  const gew=isVol?1:(parseFloat(document.getElementById('bc-gew')?.value)||100);
+  const mult=(gew*anzahl)/100;
+  const prev=document.getElementById('bc-preview');
+  if(!prev) return;
+  prev.innerHTML=`<div class="mg-live-kcal">${Math.round(k*mult)} kcal</div>
+    <div class="mg-live-macros">
+      <div class="mg-live-mac"><span class="mv">${r1(p*mult)}g</span><span class="ml">Protein</span></div>
+      <div class="mg-live-mac"><span class="mv">${r1(f*mult)}g</span><span class="ml">Fett</span></div>
+      <div class="mg-live-mac"><span class="mv">${r1(c*mult)}g</span><span class="ml">KH</span></div>
+    </div>`;
 }
 
 function setBarcodeStatus(msg, level=''){
@@ -1340,15 +1386,15 @@ async function lookupBarcode(){
       </div>
       <div class="fg"><label class="fl">Name</label><input class="si" id="bc-name" value="${nm}"></div>
       <div class="fg"><label class="fl">Nährwerte pro 100g</label><div class="grid4">
-        <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">kcal</div><input class="si" id="bc-k" type="number" value="${r1(kcal)}" inputmode="decimal"></div>
-        <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Fett g</div><input class="si" id="bc-f" type="number" value="${r1(nu.fat_100g||0)}" inputmode="decimal"></div>
-        <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">KH g</div><input class="si" id="bc-c" type="number" value="${r1(nu.carbohydrates_100g||0)}" inputmode="decimal"></div>
-        <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Protein g</div><input class="si" id="bc-p" type="number" value="${r1(nu.proteins_100g||0)}" inputmode="decimal"></div>
+        <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">kcal</div><input class="si" id="bc-k" type="number" value="${r1(kcal)}" inputmode="decimal" oninput="updateBCPreview()"></div>
+        <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Fett g</div><input class="si" id="bc-f" type="number" value="${r1(nu.fat_100g||0)}" inputmode="decimal" oninput="updateBCPreview()"></div>
+        <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">KH g</div><input class="si" id="bc-c" type="number" value="${r1(nu.carbohydrates_100g||0)}" inputmode="decimal" oninput="updateBCPreview()"></div>
+        <div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:700;">Protein g</div><input class="si" id="bc-p" type="number" value="${r1(nu.proteins_100g||0)}" inputmode="decimal" oninput="updateBCPreview()"></div>
       </div></div>
       <div class="fg" style="display:flex;gap:10px;align-items:end;">
         <div style="width:72px;flex-shrink:0;">
           <label class="fl" id="bc-anzahl-lbl">Anzahl</label>
-          <input class="si" id="bc-anzahl" type="number" value="1" min="0.5" step="0.5" inputmode="decimal">
+          <input class="si" id="bc-anzahl" type="number" value="1" min="0.5" step="0.5" inputmode="decimal" oninput="updateBCPreview()">
         </div>
         <div style="flex:1;">
           <label class="fl">Einheit</label>
@@ -1361,11 +1407,13 @@ async function lookupBarcode(){
         </div>
         <div id="bc-gew-col" style="width:80px;flex-shrink:0;">
           <label class="fl" id="bc-gew-lbl">g/Stück</label>
-          <input class="si" id="bc-gew" type="number" value="${qty}" inputmode="decimal" placeholder="g">
+          <input class="si" id="bc-gew" type="number" value="${qty}" inputmode="decimal" placeholder="g" oninput="updateBCPreview()">
         </div>
       </div>
+      <div class="mg-live" id="bc-preview"></div>
       <button class="btn-p" onclick="addManual(false)">Einmalig hinzufügen</button>
       <button class="btn-s" onclick="addManual(true)">+ In Datenbank speichern</button>`;
+      setTimeout(()=>updateBCPreview(),50);
     } else {
       st.className='status err';st.textContent='Nicht gefunden. Bitte manuell ausfüllen.';
     }
