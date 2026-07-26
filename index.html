@@ -1012,7 +1012,7 @@ function renderCfg(){
     <div class="set-row"><span class="set-lbl">Importieren (JSON)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="importData()">Import</button></div>
     <div class="set-row"><span class="set-lbl">Verlauf (CSV)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="exportCSV()">CSV</button></div>
     <div class="set-row"><span class="set-lbl">Verlauf (PDF)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="exportPDF()">PDF</button></div>
-    <div class="set-row"${localStorage.getItem('nutrilog_v1')?'':' style="display:none;"'}><span class="set-lbl">Lokale Daten nach PocketBase übertragen</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="migrateFromLocalStorage()">Migrieren</button></div>
+    <div class="set-row"><span class="set-lbl">Lokale Daten nach PocketBase übertragen</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="migrateFromLocalStorage()">Migrieren</button></div>
     <div class="set-row" style="border:none;"><span class="set-lbl">Alle geloggten Tage löschen</span><button class="set-btn" style="background:var(--olt);color:var(--orange);font-family:'Outfit',sans-serif;" onclick="clearLog()">Löschen</button></div>
   </div>
   <div class="sec" style="margin-top:8px;">Info</div>
