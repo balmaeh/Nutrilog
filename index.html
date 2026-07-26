@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
 <style>
 :root{--bg:#F7F5F1;--card:#FFF;--border:#E8E3DB;--text:#1A1614;--muted:#7B766F;--green:#1B4D2E;--glt:#EBF5EE;--orange:#D4520C;--olt:#FEF0E7;--r:12px;--tbh:72px;--hdh:64px;}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -243,6 +244,10 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);-web
 </div>
 
 <script>
+// ===================== POCKETBASE =====================
+const PB_URL='http://192.168.1.118:8090';
+const pb=new PocketBase(PB_URL);
+
 // ===================== SEED DATA =====================
 const DEFAULT_FOODS=[
  {id:'f01',kat:'Obst',name:'Ananas 4 Scheiben',quelle:'Coop',einheit:'Packung',gew:227,k:50,f:0,c:13,p:0},
@@ -378,11 +383,13 @@ const HISTORY_SEED=[
 // ===================== STATE =====================
 let S = {
   foods: [],
-  days: {},        // { "2025-05-19": { items: [{id,name,menge,einheit,kcal,fett,kh,protein},...] } }
-  history: {},     // { "2025-02-19": { kcal,fett,kh,protein } }
+  days: {},
+  history: {},
   settings: { ziel: 2000, bedarf: 2135 },
   activeTab: 'erfassen',
   today: todayISO(),
+  _settingsPbId: null,
+  _customKatsPbIds: {},
 };
 let activeDay=todayISO();
 let addMode='db', addFood=null, addListKat='Alle', addSearch='';
@@ -405,26 +412,119 @@ let verlaufTableOpen=false;
 
 function todayISO(){return new Date().toISOString().slice(0,10);}
 
-function save(){try{localStorage.setItem('nutrilog_v1',JSON.stringify(S));}catch(e){}}
-function load(){
+async function save(){
+  if(!S._settingsPbId) return;
   try{
-    const d=localStorage.getItem('nutrilog_v1');
-    if(d){const p=JSON.parse(d);Object.assign(S,p);}
-  }catch(e){}
-  // Always ensure seed foods if empty
-  if(!S.foods||S.foods.length===0) S.foods=JSON.parse(JSON.stringify(DEFAULT_FOODS));
-  // Seed history from Excel data
-  if(!S.history||Object.keys(S.history).length===0){
-    S.history={};
-    HISTORY_SEED.forEach(([s,k,f,c,p])=>{S.history[excelToISO(s)]={kcal:k,fett:f,kh:c,protein:p};});
+    await pb.collection('settings').update(S._settingsPbId,{
+      ziel:S.settings.ziel,
+      bedarf:S.settings.bedarf,
+      zielProtein:S.settings.zielProtein||0,
+    });
+  }catch(e){console.error('Einstellungen-Fehler:',e);}
+}
+async function load(){
+  S.today=todayISO();
+  activeDay=S.today;
+  try{
+    // Alle Collections parallel laden
+    const [foodsRecs,mealsRecs,histRecs,daysRecs,settRecs,katRecs]=await Promise.all([
+      pb.collection('foods').getFullList({sort:'+created'}),
+      pb.collection('meals').getFullList({sort:'+created'}),
+      pb.collection('history').getFullList(),
+      pb.collection('days').getFullList(),
+      pb.collection('settings').getFullList(),
+      pb.collection('custom_kats').getFullList(),
+    ]);
+
+    // === FOODS ===
+    if(foodsRecs.length>0){
+      S.foods=foodsRecs.map(r=>({
+        id:r.id,kat:r.kat||'',name:r.name||'',quelle:r.quelle||'',
+        einheit:r.einheit||'Stück',gew:r.gew||100,
+        k:r.k||0,f:r.f||0,c:r.c||0,p:r.p||0,
+      }));
+    }else{
+      // Erster Start: Default-Lebensmittel hochladen
+      S.foods=[];
+      for(const chunk of chunkArray(DEFAULT_FOODS,10)){
+        const results=await Promise.all(chunk.map(food=>{
+          const{id:_,...data}=food;
+          return pb.collection('foods').create(data).catch(()=>null);
+        }));
+        results.forEach((rec,i)=>{if(rec)S.foods.push({...chunk[i],id:rec.id});});
+      }
+    }
+
+    // === MEALS → S.days[date].items ===
+    mealsRecs.forEach(rec=>{
+      const date=rec.date||null;
+      if(!date) return;
+      if(!S.days[date]) S.days[date]={items:[],ziel:null,gewicht:null,_daysPbId:null};
+      S.days[date].items.push({
+        _pbId:rec.id,name:rec.name||'',menge:rec.menge||1,
+        einheit:rec.einheit||'Stück',kcal:rec.kcal||0,
+        fett:rec.fett||0,kh:rec.kh||0,protein:rec.protein||0,
+      });
+    });
+
+    // === HISTORY ===
+    if(histRecs.length>0){
+      S.history={};
+      histRecs.forEach(rec=>{
+        S.history[rec.date]={_pbId:rec.id,kcal:rec.kcal||0,fett:rec.fett||0,kh:rec.kh||0,protein:rec.protein||0};
+      });
+    }else{
+      // Erster Start: History-Seed hochladen (185 Einträge in Batches)
+      S.history={};
+      for(const chunk of chunkArray(HISTORY_SEED,10)){
+        const results=await Promise.all(chunk.map(([s,k,f,c,p])=>
+          pb.collection('history').create({date:excelToISO(s),kcal:k,fett:f,kh:c,protein:p}).catch(()=>null)
+        ));
+        results.forEach((rec,i)=>{
+          if(rec){const[s,k,f,c,p]=chunk[i];S.history[excelToISO(s)]={_pbId:rec.id,kcal:k,fett:f,kh:c,protein:p};}
+        });
+      }
+    }
+
+    // === DAYS (ziel, gewicht pro Tag) ===
+    daysRecs.forEach(rec=>{
+      if(!S.days[rec.date]) S.days[rec.date]={items:[],ziel:null,gewicht:null};
+      S.days[rec.date].ziel=rec.ziel||null;
+      S.days[rec.date].gewicht=rec.gewicht||null;
+      S.days[rec.date]._daysPbId=rec.id;
+    });
+
+    // === SETTINGS ===
+    if(settRecs.length>0){
+      const r=settRecs[0];
+      S.settings={ziel:r.ziel||2000,bedarf:r.bedarf||2135,zielProtein:r.zielProtein||0};
+      S._settingsPbId=r.id;
+    }else{
+      // Erster Start: Default-Einstellungen anlegen
+      const defProt=Math.round(2135*0.25/4);
+      const r=await pb.collection('settings').create({ziel:2000,bedarf:2135,zielProtein:defProt});
+      S.settings={ziel:2000,bedarf:2135,zielProtein:defProt};
+      S._settingsPbId=r.id;
+    }
+
+    // === CUSTOM KATS ===
+    S.customKats=katRecs.map(r=>r.name);
+    S._customKatsPbIds={};
+    katRecs.forEach(r=>{S._customKatsPbIds[r.name]=r.id;});
+
+  }catch(e){
+    console.error('PocketBase Ladefehler:',e);
+    // Fallback: lokale Defaults damit die App nicht leer bleibt
+    if(!S.foods.length) S.foods=JSON.parse(JSON.stringify(DEFAULT_FOODS));
+    if(!Object.keys(S.history).length){
+      HISTORY_SEED.forEach(([s,k,f,c,p])=>{S.history[excelToISO(s)]={kcal:k,fett:f,kh:c,protein:p};});
+    }
+    if(!S.settings.ziel) S.settings={ziel:2000,bedarf:2135};
   }
-  if(!S.days) S.days={};
-  if(!S.settings) S.settings={ziel:2000,bedarf:2135};
+
   if(!S.settings.zielProtein) S.settings.zielProtein=Math.round((S.settings.bedarf||2135)*0.25/4);
   if(S.activeTab==='heute') S.activeTab='erfassen';
   S.foods.forEach(f=>{if(f.einheit==='Dose') f.einheit='Packung';});
-  S.today=todayISO();
-  activeDay=S.today;
 }
 
 // ===================== HELPERS =====================
@@ -454,6 +554,21 @@ function fmtDELong(iso){
 function pct(val,max){return Math.min(100,Math.round(val/max*100));}
 function uid(){return 'u'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 function r1(n){return Math.round(n*10)/10;}
+function chunkArray(arr,size){const r=[];for(let i=0;i<arr.length;i+=size)r.push(arr.slice(i,i+size));return r;}
+
+async function saveDayMeta(date){
+  const day=S.days[date];
+  const data={date,ziel:day?.ziel||null,gewicht:day?.gewicht||null};
+  try{
+    if(day?._daysPbId){
+      await pb.collection('days').update(day._daysPbId,data);
+    }else{
+      const rec=await pb.collection('days').create(data);
+      if(!S.days[date]) S.days[date]={items:[],ziel:null,gewicht:null};
+      S.days[date]._daysPbId=rec.id;
+    }
+  }catch(e){console.error('Day-Meta-Fehler:',e);}
+}
 
 // ===================== HEADER =====================
 function updateHeader(){
@@ -657,8 +772,8 @@ function editDayWeight(ev,d){
   inp.onblur=()=>{
     if(!S.days[d]) S.days[d]={items:[]};
     const g=parseFloat(inp.value);
-    if(g>0) S.days[d].gewicht=g; else delete S.days[d].gewicht;
-    save();render();
+    if(g>0) S.days[d].gewicht=g; else S.days[d].gewicht=null;
+    saveDayMeta(d);render();
   };
   inp.onkeydown=e=>{if(e.key==='Enter')inp.blur();if(e.key==='Escape')render();};
   span.replaceWith(inp);
@@ -683,14 +798,24 @@ function openHistoryEdit(d){
   document.getElementById('ef-sh').classList.add('open');
 }
 
-function saveHistoryEdit(d){
-  S.history[d]={
+async function saveHistoryEdit(d){
+  const data={
     kcal:parseFloat(document.getElementById('he-kcal')?.value)||0,
     fett:parseFloat(document.getElementById('he-fett')?.value)||0,
     kh:parseFloat(document.getElementById('he-kh')?.value)||0,
     protein:parseFloat(document.getElementById('he-prot')?.value)||0,
   };
-  save();closeEdit();render();
+  const pbId=S.history[d]?._pbId;
+  try{
+    if(pbId){
+      await pb.collection('history').update(pbId,data);
+      S.history[d]={...data,_pbId:pbId};
+    }else{
+      const rec=await pb.collection('history').create({date:d,...data});
+      S.history[d]={...data,_pbId:rec.id};
+    }
+  }catch(e){console.error('History-Fehler:',e);}
+  closeEdit();render();
 }
 
 function getAllDays(){
@@ -843,7 +968,12 @@ function renderDB(){
 }
 
 function setKat(k){dbKat=k;render();}
-function confirmDelFood(id){if(confirm('Lebensmittel löschen?')){S.foods=S.foods.filter(f=>f.id!==id);save();render();}}
+async function confirmDelFood(id){
+  if(confirm('Lebensmittel löschen?')){
+    try{await pb.collection('foods').delete(id);}catch(e){console.error('Food-Lösch-Fehler:',e);}
+    S.foods=S.foods.filter(f=>f.id!==id);render();
+  }
+}
 
 // ---- EINSTELLUNGEN ----
 function renderCfg(){
@@ -882,13 +1012,14 @@ function renderCfg(){
     <div class="set-row"><span class="set-lbl">Importieren (JSON)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="importData()">Import</button></div>
     <div class="set-row"><span class="set-lbl">Verlauf (CSV)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="exportCSV()">CSV</button></div>
     <div class="set-row"><span class="set-lbl">Verlauf (PDF)</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="exportPDF()">PDF</button></div>
+    <div class="set-row"${localStorage.getItem('nutrilog_v1')?'':' style="display:none;"'}><span class="set-lbl">Lokale Daten nach PocketBase übertragen</span><button class="set-btn" style="background:var(--glt);color:var(--green);font-family:'Outfit',sans-serif;" onclick="migrateFromLocalStorage()">Migrieren</button></div>
     <div class="set-row" style="border:none;"><span class="set-lbl">Alle geloggten Tage löschen</span><button class="set-btn" style="background:var(--olt);color:var(--orange);font-family:'Outfit',sans-serif;" onclick="clearLog()">Löschen</button></div>
   </div>
   <div class="sec" style="margin-top:8px;">Info</div>
   <div class="card" style="font-size:13px;color:var(--muted);line-height:1.6;">
-    <strong style="color:var(--text);">NutriLog</strong> – Offline-App mit lokalem Speicher.<br>
+    <strong style="color:var(--text);">NutriLog</strong> – App mit PocketBase-Backend.<br>
     Nährwert-Lookup via <strong>Open Food Facts</strong> (EAN-Suche).<br>
-    Alle Daten bleiben lokal auf diesem Gerät.
+    Daten werden auf <strong>${PB_URL}</strong> gespeichert.
   </div>
   `;
 }
@@ -896,34 +1027,57 @@ function renderCfg(){
 function getCategories(){
   return [...new Set(S.foods.map(f=>f.kat))].filter(Boolean).sort((a,b)=>a.localeCompare(b,'de'));
 }
-function renameKat(oldName){
-  const neu=prompt(`Kategorie umbenennen:`, oldName);
+async function renameKat(oldName){
+  const neu=prompt('Kategorie umbenennen:',oldName);
   if(!neu||neu.trim()===oldName) return;
   const trimmed=neu.trim();
-  S.foods.forEach(f=>{if(f.kat===oldName)f.kat=trimmed;});
-  save();render();
+  const toUpdate=S.foods.filter(f=>f.kat===oldName);
+  toUpdate.forEach(f=>{f.kat=trimmed;});
+  try{
+    await Promise.all(toUpdate.map(f=>pb.collection('foods').update(f.id,{kat:trimmed})));
+    if(S._customKatsPbIds?.[oldName]){
+      await pb.collection('custom_kats').update(S._customKatsPbIds[oldName],{name:trimmed});
+      S._customKatsPbIds[trimmed]=S._customKatsPbIds[oldName];
+      delete S._customKatsPbIds[oldName];
+      const i=S.customKats.indexOf(oldName);
+      if(i>=0) S.customKats[i]=trimmed;
+    }
+  }catch(e){console.error('Umbenennen-Fehler:',e);}
+  render();
 }
-function deleteKat(name){
+async function deleteKat(name){
   const count=S.foods.filter(f=>f.kat===name).length;
   const msg=count>0
-    ? `Kategorie „${name}" löschen?\n${count} Produkt(e) werden auf „Sonstiges" gesetzt.`
-    : `Kategorie „${name}" löschen?`;
+    ?`Kategorie „${name}" löschen?\n${count} Produkt(e) werden auf „Sonstiges" gesetzt.`
+    :`Kategorie „${name}" löschen?`;
   if(!confirm(msg)) return;
-  S.foods.forEach(f=>{if(f.kat===name)f.kat='Sonstiges';});
-  save();render();
+  const toUpdate=S.foods.filter(f=>f.kat===name);
+  toUpdate.forEach(f=>{f.kat='Sonstiges';});
+  try{
+    await Promise.all(toUpdate.map(f=>pb.collection('foods').update(f.id,{kat:'Sonstiges'})));
+    if(S._customKatsPbIds?.[name]){
+      await pb.collection('custom_kats').delete(S._customKatsPbIds[name]);
+      delete S._customKatsPbIds[name];
+      S.customKats=S.customKats.filter(k=>k!==name);
+    }
+  }catch(e){console.error('Kategorie-Lösch-Fehler:',e);}
+  render();
 }
-function addKat(){
+async function addKat(){
   const inp=document.getElementById('new-kat-inp');
   const name=inp?.value?.trim();
   if(!name) return;
-  // Category exists only via foods; we just add a placeholder food or just refresh UI
-  // Actually categories are implicit – no food means no category. Just acknowledge.
-  alert(`Kategorie „${name}" wird beim nächsten neuen Produkt verfügbar sein. Sie erscheint automatisch im Dropdown.`);
-  // Store as pending category so it shows in dropdown
   if(!S.customKats) S.customKats=[];
-  if(!S.customKats.includes(name)) S.customKats.push(name);
+  if(!S._customKatsPbIds) S._customKatsPbIds={};
+  if(!S.customKats.includes(name)){
+    S.customKats.push(name);
+    try{
+      const rec=await pb.collection('custom_kats').create({name});
+      S._customKatsPbIds[name]=rec.id;
+    }catch(e){console.error('Kategorie-Fehler:',e);}
+  }
   if(inp) inp.value='';
-  save();render();
+  render();
 }
 
 function importData(){
@@ -935,14 +1089,35 @@ function importData(){
     try{
       const text=await file.text();
       const data=JSON.parse(text);
+      let count=0;
       if(data.foods&&Array.isArray(data.foods)){
-        data.foods.forEach(f=>{if(!S.foods.find(x=>x.id===f.id))S.foods.push(f);});
+        for(const f of data.foods){
+          if(!S.foods.find(x=>x.name===f.name&&x.kat===f.kat)){
+            const{id:_,...fd}=f;
+            try{const rec=await pb.collection('foods').create(fd);S.foods.push({...fd,id:rec.id});count++;}catch(e){}
+          }
+        }
       }
-      if(data.days&&typeof data.days==='object') Object.assign(S.days,data.days);
-      if(data.settings&&typeof data.settings==='object') Object.assign(S.settings,data.settings);
-      save();render();
-      alert('Import erfolgreich!');
-    }catch(err){alert('Import fehlgeschlagen: Ungültige JSON-Datei.');}
+      if(data.days&&typeof data.days==='object'){
+        for(const [date,day] of Object.entries(data.days)){
+          if(day.items?.length){
+            for(const item of day.items){
+              try{
+                const rec=await pb.collection('meals').create({...item,date});
+                if(!S.days[date]) S.days[date]={items:[],ziel:null,gewicht:null};
+                S.days[date].items.push({...item,_pbId:rec.id});count++;
+              }catch(e){}
+            }
+          }
+        }
+      }
+      if(data.settings&&typeof data.settings==='object'){
+        Object.assign(S.settings,data.settings);
+        await save();
+      }
+      render();
+      alert(`Import erfolgreich! ${count} Einträge hinzugefügt.`);
+    }catch(err){alert('Import fehlgeschlagen: '+err.message);}
   };
   inp.click();
 }
@@ -1004,7 +1179,16 @@ function exportData(){
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download='nutrilog_export.json';a.click();URL.revokeObjectURL(url);
 }
-function clearLog(){if(confirm('Alle geloggten Tage wirklich löschen?')){S.days={};save();render();}}
+async function clearLog(){
+  if(!confirm('Alle geloggten Tage wirklich löschen?')) return;
+  try{
+    const allMeals=await pb.collection('meals').getFullList({fields:'id'});
+    await Promise.all(allMeals.map(r=>pb.collection('meals').delete(r.id)));
+    const allDayRecs=await pb.collection('days').getFullList({fields:'id'});
+    await Promise.all(allDayRecs.map(r=>pb.collection('days').delete(r.id)));
+  }catch(e){console.error('Löschen-Fehler:',e);}
+  S.days={};render();
+}
 
 // ===================== ADD ENTRY SHEET =====================
 function openAddCamera(){
@@ -1437,7 +1621,7 @@ async function lookupBarcode(){
   }
 }
 
-function addManual(saveDB){
+async function addManual(saveDB){
   const name=document.getElementById('bc-name')?.value?.trim()||'Unbekannt';
   const k=parseFloat(document.getElementById('bc-k')?.value)||0;
   const f=parseFloat(document.getElementById('bc-f')?.value)||0;
@@ -1451,32 +1635,41 @@ function addManual(saveDB){
   if(isVol){
     const mult=anzahl/100;
     kcal=r1(k*mult);fett=r1(f*mult);kh=r1(c*mult);protein=r1(p*mult);
-  } else {
+  }else{
     const mult=(gew*anzahl)/100;
     kcal=r1(k*mult);fett=r1(f*mult);kh=r1(c*mult);protein=r1(p*mult);
   }
   const entry={name,menge:r1(anzahl),einheit:ein,kcal,fett,kh,protein};
   if(saveDB){
-    S.foods.push({id:uid(),kat:'Sonstiges',name,quelle:'',einheit:ein,gew,k,f,c,p});
+    try{
+      const rec=await pb.collection('foods').create({kat:'Sonstiges',name,quelle:'',einheit:ein,gew,k,f,c,p});
+      S.foods.push({id:rec.id,kat:'Sonstiges',name,quelle:'',einheit:ein,gew,k,f,c,p});
+    }catch(e){console.error('Food-Speicher-Fehler:',e);}
   }
   addToDay(entry);
   closeAdd();
 }
 
-function addToDay(entry){
-  if(!S.days[activeDay]) S.days[activeDay]={items:[],ziel:S.settings.ziel};
-  if(!S.days[activeDay].ziel) S.days[activeDay].ziel=S.settings.ziel;
+async function addToDay(entry){
+  if(!S.days[activeDay]) S.days[activeDay]={items:[],ziel:null,gewicht:null,_daysPbId:null};
+  try{
+    const record=await pb.collection('meals').create({
+      name:entry.name,date:activeDay,menge:entry.menge,
+      einheit:entry.einheit,kcal:entry.kcal,fett:entry.fett,
+      kh:entry.kh,protein:entry.protein,
+    });
+    entry._pbId=record.id;
+  }catch(e){console.error('PocketBase-Fehler beim Hinzufügen:',e);}
   S.days[activeDay].items.push(entry);
-  save();
   if(S.activeTab==='erfassen') render();
 }
 
 function saveWeight(val){
-  if(!S.days[activeDay]) S.days[activeDay]={items:[]};
+  if(!S.days[activeDay]) S.days[activeDay]={items:[],ziel:null,gewicht:null,_daysPbId:null};
   const g=parseFloat(val);
   if(g>0) S.days[activeDay].gewicht=g;
-  else delete S.days[activeDay].gewicht;
-  save();
+  else S.days[activeDay].gewicht=null;
+  saveDayMeta(activeDay);
 }
 
 function getAllWeights(){
@@ -1485,10 +1678,18 @@ function getAllWeights(){
   return r;
 }
 
-function delItem(date,idx){
+async function delItem(date,idx){
   if(!S.days[date]) return;
+  const item=S.days[date].items[idx];
+  if(item?._pbId){
+    try{
+      await pb.collection('meals').delete(item._pbId);
+    }catch(e){
+      console.error('PocketBase-Fehler beim Löschen:',e);
+    }
+  }
   S.days[date].items.splice(idx,1);
-  save();render();
+  render();
 }
 
 // ===================== EDIT FOOD SHEET =====================
@@ -1543,15 +1744,18 @@ function closeEdit(){
   document.getElementById('ef-ov').classList.remove('open');
   document.getElementById('ef-sh').classList.remove('open');
 }
-function saveFood(existingId){
+async function saveFood(existingId){
   let kat=document.getElementById('ef-kat')?.value||'Sonstiges';
   if(kat==='__new__'||kat===''){
     kat=document.getElementById('ef-kat-new')?.value?.trim()||'Sonstiges';
-    // persist as custom category
-    if(kat&&kat!=='Sonstiges'){if(!S.customKats)S.customKats=[];if(!S.customKats.includes(kat))S.customKats.push(kat);}
+    if(kat&&kat!=='Sonstiges'&&!S.customKats?.includes(kat)){
+      if(!S.customKats) S.customKats=[];
+      if(!S._customKatsPbIds) S._customKatsPbIds={};
+      S.customKats.push(kat);
+      try{const rec=await pb.collection('custom_kats').create({name:kat});S._customKatsPbIds[kat]=rec.id;}catch(e){}
+    }
   }
-  const food={
-    id:existingId||uid(),
+  const foodData={
     kat,
     name:document.getElementById('ef-name')?.value?.trim()||'Unbekannt',
     quelle:document.getElementById('ef-src')?.value?.trim()||'',
@@ -1562,20 +1766,112 @@ function saveFood(existingId){
     c:parseFloat(document.getElementById('ef-c')?.value)||0,
     p:parseFloat(document.getElementById('ef-p')?.value)||0,
   };
-  if(existingId){const i=S.foods.findIndex(f=>f.id===existingId);if(i>=0)S.foods[i]=food;else S.foods.push(food);}
-  else S.foods.push(food);
-  save();closeEdit();render();
+  try{
+    if(existingId){
+      await pb.collection('foods').update(existingId,foodData);
+      const i=S.foods.findIndex(f=>f.id===existingId);
+      if(i>=0) S.foods[i]={...foodData,id:existingId};
+      else S.foods.push({...foodData,id:existingId});
+    }else{
+      const rec=await pb.collection('foods').create(foodData);
+      S.foods.push({...foodData,id:rec.id});
+    }
+  }catch(e){console.error('Food-Speicher-Fehler:',e);}
+  closeEdit();render();
+}
+
+// ===================== MIGRATION =====================
+async function migrateFromLocalStorage(){
+  const raw=localStorage.getItem('nutrilog_v1');
+  if(!raw){alert('Keine lokalen Daten gefunden.');return;}
+  if(!confirm('Lokale Daten in PocketBase übertragen?\n\nBestehende PocketBase-Daten werden NICHT überschrieben.\nNach der Migration werden die lokalen Daten gelöscht.')) return;
+  let count=0;
+  try{
+    const data=JSON.parse(raw);
+
+    // Foods
+    if(data.foods?.length){
+      for(const f of data.foods){
+        if(!S.foods.find(x=>x.name===f.name&&x.kat===f.kat)){
+          const{id:_,...fd}=f;
+          try{const rec=await pb.collection('foods').create(fd);S.foods.push({...fd,id:rec.id});count++;}catch(e){}
+        }
+      }
+    }
+
+    // History
+    if(data.history){
+      for(const [date,h] of Object.entries(data.history)){
+        if(!S.history[date]){
+          try{
+            const rec=await pb.collection('history').create({date,kcal:h.kcal||0,fett:h.fett||0,kh:h.kh||0,protein:h.protein||0});
+            S.history[date]={_pbId:rec.id,kcal:h.kcal||0,fett:h.fett||0,kh:h.kh||0,protein:h.protein||0};
+            count++;
+          }catch(e){}
+        }
+      }
+    }
+
+    // Days (Mahlzeiten + Gewicht/Ziel)
+    if(data.days){
+      for(const [date,day] of Object.entries(data.days)){
+        if(day.items?.length){
+          for(const item of day.items){
+            try{
+              const rec=await pb.collection('meals').create({...item,date});
+              if(!S.days[date]) S.days[date]={items:[],ziel:null,gewicht:null};
+              S.days[date].items.push({...item,_pbId:rec.id});count++;
+            }catch(e){}
+          }
+        }
+        if((day.ziel||day.gewicht)&&!S.days[date]?._daysPbId){
+          try{
+            const rec=await pb.collection('days').create({date,ziel:day.ziel||null,gewicht:day.gewicht||null});
+            if(!S.days[date]) S.days[date]={items:[],ziel:null,gewicht:null};
+            S.days[date].ziel=day.ziel||null;
+            S.days[date].gewicht=day.gewicht||null;
+            S.days[date]._daysPbId=rec.id;
+          }catch(e){}
+        }
+      }
+    }
+
+    // Settings
+    if(data.settings&&S._settingsPbId){
+      Object.assign(S.settings,data.settings);
+      await save();
+    }
+
+    // Custom Kats
+    if(data.customKats?.length){
+      for(const name of data.customKats){
+        if(!S.customKats.includes(name)){
+          try{
+            const rec=await pb.collection('custom_kats').create({name});
+            S.customKats.push(name);
+            S._customKatsPbIds[name]=rec.id;
+          }catch(e){}
+        }
+      }
+    }
+
+    localStorage.removeItem('nutrilog_v1');
+    render();
+    alert(`Migration abgeschlossen! ${count} Einträge übertragen.\nLokale Daten wurden gelöscht.`);
+  }catch(e){
+    alert('Migration fehlgeschlagen: '+e.message);
+  }
 }
 
 // ===================== INIT =====================
-load();
-updateHeader();
-// Ensure add sheet body shows default
-document.getElementById('add-body').innerHTML='';
-render();
-// FAB shows only on Heute + DB tabs
-document.getElementById('fab').style.display='flex';
-document.getElementById('fab-cam').style.display=S.activeTab==='erfassen'?'flex':'none';
+// load() ist async (lädt Mahlzeiten aus PocketBase), daher .then() für den Rest
+load().then(()=>{
+  updateHeader();
+  document.getElementById('add-body').innerHTML='';
+  render();
+  document.getElementById('fab').style.display='flex';
+  document.getElementById('fab-cam').style.display=S.activeTab==='erfassen'?'flex':'none';
+});
 </script>
 </body>
 </html>
